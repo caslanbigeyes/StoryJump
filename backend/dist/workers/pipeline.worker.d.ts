@@ -13,6 +13,7 @@ export declare class PipelineWorker implements OnModuleInit {
     private readonly ttsProvider;
     private readonly logger;
     private worker;
+    private queue;
     constructor(configService: ConfigService, prisma: PrismaService, llmProvider: LLMProvider, imageProvider: ImageProvider, ttsProvider: TTSProvider);
     onModuleInit(): void;
     private processJob;

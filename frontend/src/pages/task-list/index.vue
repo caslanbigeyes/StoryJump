@@ -1,41 +1,39 @@
 <template>
-  <view class="page">
-    <view class="header">
-      <text class="title">我的任务</text>
-      <button class="btn-create" @tap="goCreate">+ 新建</button>
-    </view>
+  <div class="page">
+    <div class="header">
+      <span class="title">我的任务</span>
+      <button class="btn-create" @click="goCreate">+ 新建</button>
+    </div>
 
-    <view v-if="taskStore.loading" class="loading">
-      <text>加载中...</text>
-    </view>
+    <div v-if="taskStore.loading" class="loading">加载中...</div>
 
-    <scroll-view v-else scroll-y class="task-list">
-      <view
+    <div v-else class="task-list">
+      <div
         v-for="task in taskStore.tasks"
         :key="task.id"
         class="task-card"
-        @tap="goDetail(task.id)"
+        @click="goDetail(task.id)"
       >
-        <view class="task-header">
-          <text class="task-title">{{ task.title }}</text>
-          <view :class="['status-badge', `status-${task.status}`]">
-            <text>{{ statusLabel(task.status) }}</text>
-          </view>
-        </view>
-        <view class="task-progress">
-          <view class="progress-bar">
-            <view class="progress-fill" :style="{ width: task.progress + '%' }" />
-          </view>
-          <text class="progress-text">{{ task.progress }}%</text>
-        </view>
-        <text class="task-date">{{ formatDate(task.createdAt) }}</text>
-      </view>
+        <div class="task-header">
+          <span class="task-title">{{ task.title }}</span>
+          <div :class="['status-badge', `status-${task.status}`]">
+            <span>{{ statusLabel(task.status) }}</span>
+          </div>
+        </div>
+        <div class="task-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: task.progress + '%' }" />
+          </div>
+          <span class="progress-text">{{ task.progress }}%</span>
+        </div>
+        <span class="task-date">{{ formatDate(task.createdAt) }}</span>
+      </div>
 
-      <view v-if="taskStore.tasks.length === 0" class="empty">
-        <text>暂无任务，点击右上角创建</text>
-      </view>
-    </scroll-view>
-  </view>
+      <div v-if="taskStore.tasks.length === 0" class="empty">
+        暂无任务，点击右上角创建
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -75,28 +73,28 @@ function goDetail(taskId: string) {
 
 <style scoped>
 .page { display: flex; flex-direction: column; height: 100vh; background: #f5f7fa; }
-.header { display: flex; justify-content: space-between; align-items: center; padding: 32rpx; background: #fff; }
-.title { font-size: 40rpx; font-weight: bold; }
-.btn-create { background: #6c63ff; color: #fff; border-radius: 20rpx; padding: 12rpx 28rpx; font-size: 28rpx; border: none; }
+.header { display: flex; justify-content: space-between; align-items: center; padding: 32px; background: #fff; }
+.title { font-size: 32px; font-weight: bold; }
+.btn-create { background: #6c63ff; color: #fff; border-radius: 20px; padding: 12px 20px; font-size: 18px; border: none; }
 .loading { flex: 1; display: flex; align-items: center; justify-content: center; }
-.task-list { flex: 1; padding: 16rpx; }
-.task-card { background: #fff; border-radius: 20rpx; padding: 32rpx; margin-bottom: 20rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,0.06); }
-.task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20rpx; }
-.task-title { font-size: 32rpx; font-weight: bold; flex: 1; margin-right: 16rpx; }
-.status-badge { border-radius: 12rpx; padding: 6rpx 16rpx; }
-.status-badge text { font-size: 24rpx; }
+.task-list { flex: 1; padding: 16px; overflow: auto; }
+.task-card { background: #fff; border-radius: 20px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); cursor: pointer; }
+.task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 16px; }
+.task-title { font-size: 22px; font-weight: bold; flex: 1; }
+.status-badge { border-radius: 12px; padding: 6px 16px; }
+.status-badge span { font-size: 14px; }
 .status-pending { background: #fff3e0; }
-.status-pending text { color: #ff9800; }
+.status-pending span { color: #ff9800; }
 .status-running { background: #e3f2fd; }
-.status-running text { color: #2196f3; }
+.status-running span { color: #2196f3; }
 .status-success { background: #e8f5e9; }
-.status-success text { color: #4caf50; }
+.status-success span { color: #4caf50; }
 .status-failed { background: #ffebee; }
-.status-failed text { color: #f44336; }
-.task-progress { display: flex; align-items: center; margin-bottom: 12rpx; }
-.progress-bar { flex: 1; height: 8rpx; background: #eee; border-radius: 4rpx; margin-right: 16rpx; overflow: hidden; }
-.progress-fill { height: 100%; background: #6c63ff; border-radius: 4rpx; transition: width 0.3s; }
-.progress-text { font-size: 24rpx; color: #999; width: 70rpx; text-align: right; }
-.task-date { font-size: 24rpx; color: #bbb; }
-.empty { text-align: center; padding: 80rpx; color: #bbb; font-size: 28rpx; }
+.status-failed span { color: #f44336; }
+.task-progress { display: flex; align-items: center; margin-bottom: 12px; }
+.progress-bar { flex: 1; height: 8px; background: #eee; border-radius: 4px; margin-right: 16px; overflow: hidden; }
+.progress-fill { height: 100%; background: #6c63ff; border-radius: 4px; transition: width 0.3s; }
+.progress-text { font-size: 14px; color: #999; width: 56px; text-align: right; }
+.task-date { font-size: 14px; color: #bbb; }
+.empty { text-align: center; padding: 80px; color: #bbb; font-size: 18px; }
 </style>

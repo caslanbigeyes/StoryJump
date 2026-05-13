@@ -40,13 +40,12 @@ let PipelineWorker = PipelineWorker_1 = class PipelineWorker {
     onModuleInit() {
         const redisUrl = this.configService.get('REDIS_URL') ?? 'redis://localhost:6379';
         const url = new URL(redisUrl);
+        const connection = { host: url.hostname, port: parseInt(url.port) || 6379 };
+        this.queue = new bullmq_1.Queue(exports.STORY_PIPELINE_QUEUE, { connection });
         this.worker = new bullmq_1.Worker(exports.STORY_PIPELINE_QUEUE, async (job) => {
             this.logger.log(`Processing job: ${job.name}, taskId: ${job.data?.taskId}`);
             await this.processJob(job);
-        }, {
-            connection: { host: url.hostname, port: parseInt(url.port) || 6379 },
-            concurrency: 3,
-        });
+        }, { connection, concurrency: 3 });
         this.worker.on('completed', (job) => {
             this.logger.log(`Job ${job.id} (${job.name}) completed`);
         });
@@ -64,7 +63,7 @@ let PipelineWorker = PipelineWorker_1 = class PipelineWorker {
     async processJob(job) {
         switch (job.name) {
             case task_status_enum_1.TaskStep.CREATE_SCRIPT:
-                await (0, create_script_job_1.handleCreateScriptJob)(job, this.prisma, this.llmProvider);
+                await (0, create_script_job_1.handleCreateScriptJob)(job, this.prisma, this.llmProvider, this.queue);
                 break;
             case task_status_enum_1.TaskStep.SPLIT_STORYBOARD:
                 await (0, split_storyboard_job_1.handleSplitStoryboardJob)(job, this.prisma, this.llmProvider);

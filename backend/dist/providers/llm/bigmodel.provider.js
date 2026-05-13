@@ -166,10 +166,23 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
         return resp.data.choices[0].message.content;
     }
     extractJSON(raw) {
-        const cleaned = raw
-            .replace(/^```(?:json)?\s*/i, '')
-            .replace(/\s*```$/i, '')
+        let cleaned = raw
+            .replace(/^```(?:json)?\s*/im, '')
+            .replace(/\s*```\s*$/im, '')
             .trim();
+        const firstBrace = cleaned.indexOf('{');
+        const firstBracket = cleaned.indexOf('[');
+        let startIdx = -1;
+        if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+            startIdx = firstBrace;
+        }
+        else if (firstBracket !== -1) {
+            startIdx = firstBracket;
+        }
+        if (startIdx > 0)
+            cleaned = cleaned.slice(startIdx);
+        cleaned = cleaned.replace(/\/\/[^\n\r]*/g, '');
+        cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
         return JSON.parse(cleaned);
     }
     async generateStoryboard(input) {

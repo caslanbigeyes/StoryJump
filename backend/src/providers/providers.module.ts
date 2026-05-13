@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LLM_PROVIDER_TOKEN } from './llm/llm.provider';
 import { BigModelProvider } from './llm/bigmodel.provider';
-import { ImageProvider, IMAGE_PROVIDER_TOKEN } from './image/image.provider';
-import { FluxImageProvider } from './image/flux.provider';
+import { IMAGE_PROVIDER_TOKEN } from './image/image.provider';
+import { KlingImageProvider } from './image/kling.provider';
 import { TTS_PROVIDER_TOKEN } from './tts/tts.provider';
 import { VolcanoTTSProvider } from './tts/volcano.provider';
 
@@ -16,7 +16,7 @@ import { VolcanoTTSProvider } from './tts/volcano.provider';
     },
     {
       provide: IMAGE_PROVIDER_TOKEN,
-      useClass: FluxImageProvider,
+      useClass: KlingImageProvider,
     },
     {
       provide: TTS_PROVIDER_TOKEN,

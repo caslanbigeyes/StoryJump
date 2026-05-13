@@ -14,6 +14,11 @@ const task_service_1 = require("./task.service");
 const prisma_service_1 = require("../../prisma/prisma.service");
 const auth_module_1 = require("../auth/auth.module");
 const pipeline_worker_1 = require("../../workers/pipeline.worker");
+const script_module_1 = require("../script/script.module");
+const storyboard_module_1 = require("../storyboard/storyboard.module");
+const image_module_1 = require("../image/image.module");
+const tts_module_1 = require("../tts/tts.module");
+const video_module_1 = require("../video/video.module");
 let TaskModule = class TaskModule {
 };
 exports.TaskModule = TaskModule;
@@ -21,6 +26,11 @@ exports.TaskModule = TaskModule = __decorate([
     (0, common_1.Module)({
         imports: [
             auth_module_1.AuthModule,
+            script_module_1.ScriptModule,
+            storyboard_module_1.StoryboardModule,
+            image_module_1.ImageModule,
+            tts_module_1.TtsModule,
+            video_module_1.VideoModule,
             bull_1.BullModule.registerQueue({ name: pipeline_worker_1.STORY_PIPELINE_QUEUE }),
         ],
         controllers: [task_controller_1.TaskController],

@@ -2,7 +2,25 @@
  * uni.request 封装，自动附加 Authorization token header
  */
 
-const BASE_URL = 'http://localhost:3000/api';
+function resolveBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    return 'http://127.0.0.1:3000/api';
+  }
+
+  const runtimeBaseUrl =
+    window.localStorage.getItem('storyjump_api_base_url') ||
+    (window as typeof window & { __STORYJUMP_API_BASE_URL__?: string }).__STORYJUMP_API_BASE_URL__;
+  if (runtimeBaseUrl) return runtimeBaseUrl;
+
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http://127.0.0.1:3000/api';
+  }
+
+  return '/api';
+}
+
+const BASE_URL = resolveBaseUrl();
 
 function getToken(): string {
   return uni.getStorageSync('token') ?? '';

@@ -7,4 +7,9 @@ export declare class ImageService {
     constructor(prisma: PrismaService, imageProvider: ImageProvider);
     generateImageForShot(shotId: string, prompt: string, options?: Record<string, unknown>): Promise<string>;
     regenerateImage(shotId: string, options?: Record<string, unknown>): Promise<string>;
+    generateImagesForTask(taskId: string, options?: Record<string, unknown>): Promise<{
+        total: number;
+        successCount: number;
+        failedCount: number;
+    }>;
 }

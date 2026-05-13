@@ -27,11 +27,105 @@ let StoryboardService = StoryboardService_1 = class StoryboardService {
         this.logger.log(`Splitting script into shots for task ${taskId}`);
         return this.llmProvider.splitStoryboard(script, input);
     }
+    async resplitTaskShots(taskId) {
+        const task = await this.prisma.task.findUnique({
+            where: { id: taskId },
+            select: {
+                id: true,
+                inputJson: true,
+                outputJson: true,
+            },
+        });
+        if (!task) {
+            throw new common_1.NotFoundException(`Task ${taskId} not found`);
+        }
+        if (!task.inputJson || !task.outputJson) {
+            throw new common_1.NotFoundException(`Task ${taskId} script or input not found`);
+        }
+        const input = JSON.parse(task.inputJson);
+        const output = JSON.parse(task.outputJson);
+        const shots = await this.splitIntoShots(task.id, output.script, input);
+        const nextOutput = {
+            ...output,
+            shots,
+            meta: {
+                ...output.meta,
+                shot_count: shots.length,
+            },
+            validation: {
+                ...output.validation,
+                shot_count_match: shots.length === input.shot_count,
+            },
+        };
+        await this.prisma.$transaction(async (tx) => {
+            await tx.shot.deleteMany({ where: { taskId } });
+            if (shots.length > 0) {
+                await tx.shot.createMany({
+                    data: shots.map((shot) => ({
+                        taskId,
+                        shotIndex: shot.shot_id,
+                        sceneText: shot.scene,
+                        cameraAngle: `${shot.camera.shot_size}, ${shot.camera.angle}, ${shot.camera.movement}`,
+                        characterAction: shot.action,
+                        imagePrompt: shot.image_prompt,
+                        imageUrl: null,
+                        audioUrl: null,
+                        status: 'pending',
+                    })),
+                });
+            }
+            await tx.task.update({
+                where: { id: taskId },
+                data: {
+                    outputJson: JSON.stringify(nextOutput),
+                    currentStep: 'done',
+                    progress: 100,
+                },
+            });
+        });
+        return nextOutput;
+    }
     async updateShot(shotId, data) {
-        return this.prisma.shot.update({ where: { id: shotId }, data });
+        const shot = await this.prisma.shot.update({
+            where: { id: shotId },
+            data,
+        });
+        const task = await this.prisma.task.findUnique({
+            where: { id: shot.taskId },
+            select: { outputJson: true },
+        });
+        if (task?.outputJson) {
+            const output = JSON.parse(task.outputJson);
+            const nextShots = output.shots.map((item) => {
+                if (item.shot_id !== shot.shotIndex)
+                    return item;
+                return {
+                    ...item,
+                    scene: data.sceneText ?? item.scene,
+                    action: data.characterAction ?? item.action,
+                    image_prompt: data.imagePrompt ?? item.image_prompt,
+                    camera: data.cameraAngle
+                        ? { ...item.camera, angle: data.cameraAngle }
+                        : item.camera,
+                };
+            });
+            await this.prisma.task.update({
+                where: { id: shot.taskId },
+                data: {
+                    outputJson: JSON.stringify({ ...output, shots: nextShots }),
+                },
+            });
+        }
+        return shot;
     }
     async getShotsByTask(taskId) {
         return this.prisma.shot.findMany({ where: { taskId }, orderBy: { shotIndex: 'asc' } });
+    }
+    async getShotById(shotId) {
+        const shot = await this.prisma.shot.findUnique({ where: { id: shotId } });
+        if (!shot)
+            throw new common_1.NotFoundException(`Shot ${shotId} not found`);
+        return shot;
     }
 };
 exports.StoryboardService = StoryboardService;

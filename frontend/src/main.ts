@@ -1,10 +1,15 @@
-import { createSSRApp } from 'vue';
+import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
+import { router } from './router';
+import { installUniShim } from './shims/uni';
+import './style.css';
 
-export function createApp() {
-  const app = createSSRApp(App);
-  const pinia = createPinia();
-  app.use(pinia);
-  return { app, pinia };
-}
+installUniShim(router);
+
+const app = createApp(App);
+const pinia = createPinia();
+
+app.use(pinia);
+app.use(router);
+app.mount('#app');

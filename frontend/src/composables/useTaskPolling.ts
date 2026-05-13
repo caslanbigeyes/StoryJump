@@ -9,6 +9,7 @@ export function useTaskPolling(taskId: string) {
   const currentStep = ref<TaskStep>(TaskStep.CREATE_SCRIPT);
   const progress = ref<number>(0);
   const error = ref<string | null>(null);
+  const errorMessage = ref<string | null>(null);
 
   let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -20,11 +21,19 @@ export function useTaskPolling(taskId: string) {
   };
 
   const poll = async () => {
+    if (!taskId) {
+      error.value = '缺少任务 ID';
+      stopPolling();
+      return;
+    }
+
     try {
       const result: TaskStatusResult = await getTaskStatus(taskId);
       status.value = result.status;
       currentStep.value = result.currentStep;
       progress.value = result.progress;
+      errorMessage.value = result.errorMessage ?? null;
+      error.value = null;
 
       // 终态时自动停止轮询
       if (result.status === TaskStatus.SUCCESS || result.status === TaskStatus.FAILED) {
@@ -38,6 +47,10 @@ export function useTaskPolling(taskId: string) {
   };
 
   const startPolling = () => {
+    if (!taskId) {
+      error.value = '缺少任务 ID';
+      return;
+    }
     stopPolling(); // 防止重复启动
     poll(); // 立即执行一次
     timer = setInterval(poll, POLL_INTERVAL_MS);
@@ -53,6 +66,7 @@ export function useTaskPolling(taskId: string) {
     currentStep,
     progress,
     error,
+    errorMessage,
     startPolling,
     stopPolling,
   };

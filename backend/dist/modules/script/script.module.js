@@ -10,13 +10,14 @@ exports.ScriptModule = void 0;
 const common_1 = require("@nestjs/common");
 const script_service_1 = require("./script.service");
 const providers_module_1 = require("../../providers/providers.module");
+const prisma_service_1 = require("../../prisma/prisma.service");
 let ScriptModule = class ScriptModule {
 };
 exports.ScriptModule = ScriptModule;
 exports.ScriptModule = ScriptModule = __decorate([
     (0, common_1.Module)({
         imports: [providers_module_1.ProvidersModule],
-        providers: [script_service_1.ScriptService],
+        providers: [script_service_1.ScriptService, prisma_service_1.PrismaService],
         exports: [script_service_1.ScriptService],
     })
 ], ScriptModule);

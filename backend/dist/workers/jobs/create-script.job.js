@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleCreateScriptJob = handleCreateScriptJob;
 const common_1 = require("@nestjs/common");
 const task_status_enum_1 = require("../../common/enums/task-status.enum");
-async function handleCreateScriptJob(job, prisma, llmProvider) {
+async function handleCreateScriptJob(job, prisma, llmProvider, queue) {
     const logger = new common_1.Logger('CreateScriptJob');
     const { taskId, input } = job.data;
     logger.log(`[task:${taskId}] start create-script`);
@@ -21,6 +21,7 @@ async function handleCreateScriptJob(job, prisma, llmProvider) {
                 progress: 60,
             },
         });
+        await prisma.shot.deleteMany({ where: { taskId } });
         if (output.shots?.length) {
             await prisma.shot.createMany({
                 data: output.shots.map((shot) => ({
@@ -34,12 +35,15 @@ async function handleCreateScriptJob(job, prisma, llmProvider) {
                 })),
             });
         }
-        await prisma.task.update({
-            where: { id: taskId },
-            data: { status: task_status_enum_1.TaskStatus.SUCCESS, currentStep: task_status_enum_1.TaskStep.DONE, progress: 100 },
-        });
-        await job.updateProgress(100);
-        logger.log(`[task:${taskId}] create-script done, shots=${output.shots?.length}`);
+        await job.updateProgress(60);
+        logger.log(`[task:${taskId}] create-script done, shots=${output.shots?.length}, enqueueing generate_images`);
+        await queue.add(task_status_enum_1.TaskStep.GENERATE_IMAGES, {
+            taskId,
+            options: {
+                aspect_ratio: input.aspect_ratio ?? '9:16',
+                quality: 'medium',
+            },
+        }, { attempts: 2, backoff: { type: 'exponential', delay: 5000 } });
     }
     catch (error) {
         const msg = error instanceof Error ? error.message : String(error);

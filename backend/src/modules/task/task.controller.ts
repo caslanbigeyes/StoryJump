@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Param,
   Post,
   Query,
@@ -13,11 +14,40 @@ import {
 import { TaskService, CreateTaskDto } from './task.service';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ScriptService } from '../script/script.service';
+import { StoryboardService } from '../storyboard/storyboard.service';
+import { ImageService } from '../image/image.service';
+import { TtsService } from '../tts/tts.service';
+import { VideoService } from '../video/video.service';
+import type { StoryScript } from '../../providers/llm/llm.provider';
+
+interface RewriteScriptDto {
+  instructions?: string;
+}
+
+interface UpdateShotDto {
+  sceneText?: string;
+  cameraAngle?: string;
+  characterAction?: string;
+  imagePrompt?: string;
+}
+
+interface ExportVideoDto {
+  resolution?: string;
+  format?: string;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('tasks')
 export class TaskController {
-  constructor(private readonly taskService: TaskService) {}
+  constructor(
+    private readonly taskService: TaskService,
+    private readonly scriptService: ScriptService,
+    private readonly storyboardService: StoryboardService,
+    private readonly imageService: ImageService,
+    private readonly ttsService: TtsService,
+    private readonly videoService: VideoService,
+  ) {}
 
   /**
    * POST /api/tasks
@@ -75,5 +105,57 @@ export class TaskController {
   @Get(':id/result')
   async getTaskResult(@Param('id') id: string) {
     return this.taskService.getTaskResult(id);
+  }
+
+  @Patch(':id/script')
+  async updateTaskScript(@Param('id') id: string, @Body() script: StoryScript) {
+    return this.scriptService.updateTaskScript(id, script);
+  }
+
+  @Post(':id/script/rewrite')
+  async rewriteTaskScript(@Param('id') id: string, @Body() dto: RewriteScriptDto) {
+    return this.scriptService.rewriteTaskScript(id, dto.instructions);
+  }
+
+  @Post(':id/storyboard/resplit')
+  async resplitTaskStoryboard(@Param('id') id: string) {
+    return this.storyboardService.resplitTaskShots(id);
+  }
+
+  @Patch('shots/:shotId')
+  async updateShot(@Param('shotId') shotId: string, @Body() dto: UpdateShotDto) {
+    return this.storyboardService.updateShot(shotId, dto);
+  }
+
+  @Post('shots/:shotId/regenerate-image')
+  async regenerateShotImage(@Param('shotId') shotId: string) {
+    const imageUrl = await this.imageService.regenerateImage(shotId);
+    return { imageUrl };
+  }
+
+  @Post(':id/images/regenerate')
+  async regenerateTaskImages(@Param('id') id: string) {
+    return this.imageService.generateImagesForTask(id);
+  }
+
+  @Post('shots/:shotId/regenerate-audio')
+  async regenerateShotAudio(@Param('shotId') shotId: string) {
+    const audioUrl = await this.ttsService.regenerateAudio(shotId);
+    return { audioUrl };
+  }
+
+  @Post(':id/audio/regenerate')
+  async regenerateTaskAudio(@Param('id') id: string) {
+    return this.ttsService.generateAudioForTask(id);
+  }
+
+  @Get(':id/video')
+  async getTaskVideo(@Param('id') id: string) {
+    return this.videoService.getTaskVideo(id);
+  }
+
+  @Post(':id/video/export')
+  async exportTaskVideo(@Param('id') id: string, @Body() dto: ExportVideoDto) {
+    return this.videoService.startTaskVideoExport(id, dto);
   }
 }

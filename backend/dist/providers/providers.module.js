@@ -12,7 +12,7 @@ const config_1 = require("@nestjs/config");
 const llm_provider_1 = require("./llm/llm.provider");
 const bigmodel_provider_1 = require("./llm/bigmodel.provider");
 const image_provider_1 = require("./image/image.provider");
-const flux_provider_1 = require("./image/flux.provider");
+const kling_provider_1 = require("./image/kling.provider");
 const tts_provider_1 = require("./tts/tts.provider");
 const volcano_provider_1 = require("./tts/volcano.provider");
 let ProvidersModule = class ProvidersModule {
@@ -28,7 +28,7 @@ exports.ProvidersModule = ProvidersModule = __decorate([
             },
             {
                 provide: image_provider_1.IMAGE_PROVIDER_TOKEN,
-                useClass: flux_provider_1.FluxImageProvider,
+                useClass: kling_provider_1.KlingImageProvider,
             },
             {
                 provide: tts_provider_1.TTS_PROVIDER_TOKEN,

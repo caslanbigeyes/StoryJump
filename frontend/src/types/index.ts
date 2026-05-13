@@ -39,6 +39,54 @@ export interface Shot {
   status: string;
 }
 
+export interface StoryScript {
+  title: string;
+  logline: string;
+  theme: string;
+  structure: {
+    beginning: string;
+    development: string;
+    turning_point: string;
+    ending: string;
+  };
+  narration: string;
+}
+
+export interface StoryboardResult {
+  meta: {
+    title: string;
+    genre: string;
+    duration: number;
+    shot_count: number;
+    aspect_ratio: string;
+    visual_style: string;
+  };
+  script: StoryScript;
+  shots: Array<{
+    shot_id: number;
+    duration: number;
+    scene: string;
+    time: string;
+    location: string;
+    character: string[];
+    action: string;
+    emotion: string;
+    camera: {
+      shot_size: string;
+      angle: string;
+      movement: string;
+    };
+    visual: {
+      lighting: string;
+      color_palette: string;
+      composition: string;
+    };
+    narration: string;
+    image_prompt: string;
+    negative_prompt: string;
+  }>;
+}
+
 export interface Asset {
   id: string;
   taskId: string;
@@ -64,6 +112,7 @@ export interface TaskStatusResult {
   status: TaskStatus;
   currentStep: TaskStep;
   progress: number;
+  errorMessage?: string | null;
 }
 
 export interface PaginatedResult<T> {

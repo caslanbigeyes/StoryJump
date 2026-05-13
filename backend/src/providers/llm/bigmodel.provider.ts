@@ -192,11 +192,29 @@ export class BigModelProvider extends LLMProvider {
   // JSON 提取：从 LLM 回复中安全解析 JSON
   // ------------------------------------------------------------------
   private extractJSON<T>(raw: string): T {
-    // 去掉可能的 markdown 代码块
-    const cleaned = raw
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/i, '')
+    // 1. 去掉可能的 markdown 代码块
+    let cleaned = raw
+      .replace(/^```(?:json)?\s*/im, '')
+      .replace(/\s*```\s*$/im, '')
       .trim();
+
+    // 2. 提取第一个完整 JSON 对象或数组（防止 LLM 在 JSON 前后加说明文字）
+    const firstBrace = cleaned.indexOf('{');
+    const firstBracket = cleaned.indexOf('[');
+    let startIdx = -1;
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+      startIdx = firstBrace;
+    } else if (firstBracket !== -1) {
+      startIdx = firstBracket;
+    }
+    if (startIdx > 0) cleaned = cleaned.slice(startIdx);
+
+    // 3. 去掉 JSON 注释（LLM 有时生成 // ... N more 之类的注释）
+    cleaned = cleaned.replace(/\/\/[^\n\r]*/g, '');
+
+    // 4. 去掉尾部逗号（LLM 有时生成 trailing comma）
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+
     return JSON.parse(cleaned) as T;
   }
 

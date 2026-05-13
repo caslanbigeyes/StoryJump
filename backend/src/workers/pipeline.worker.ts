@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { Worker, Job } from 'bullmq';
+import { Worker, Queue, Job } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { LLMProvider, LLM_PROVIDER_TOKEN } from '../providers/llm/llm.provider';
@@ -18,6 +18,7 @@ export const STORY_PIPELINE_QUEUE = 'story-pipeline';
 export class PipelineWorker implements OnModuleInit {
   private readonly logger = new Logger(PipelineWorker.name);
   private worker: Worker;
+  private queue: Queue;
 
   constructor(
     private readonly configService: ConfigService,
@@ -30,6 +31,10 @@ export class PipelineWorker implements OnModuleInit {
   onModuleInit() {
     const redisUrl = this.configService.get<string>('REDIS_URL') ?? 'redis://localhost:6379';
     const url = new URL(redisUrl);
+    const connection = { host: url.hostname, port: parseInt(url.port) || 6379 };
+
+    // 用于 job handler 内部入队下一步任务
+    this.queue = new Queue(STORY_PIPELINE_QUEUE, { connection });
 
     this.worker = new Worker(
       STORY_PIPELINE_QUEUE,
@@ -37,10 +42,7 @@ export class PipelineWorker implements OnModuleInit {
         this.logger.log(`Processing job: ${job.name}, taskId: ${job.data?.taskId}`);
         await this.processJob(job);
       },
-      {
-        connection: { host: url.hostname, port: parseInt(url.port) || 6379 },
-        concurrency: 3,
-      },
+      { connection, concurrency: 3 },
     );
 
     this.worker.on('completed', (job) => {
@@ -63,7 +65,7 @@ export class PipelineWorker implements OnModuleInit {
   private async processJob(job: Job): Promise<void> {
     switch (job.name) {
       case TaskStep.CREATE_SCRIPT:
-        await handleCreateScriptJob(job, this.prisma, this.llmProvider);
+        await handleCreateScriptJob(job, this.prisma, this.llmProvider, this.queue);
         break;
       case TaskStep.SPLIT_STORYBOARD:
         await handleSplitStoryboardJob(job, this.prisma, this.llmProvider);

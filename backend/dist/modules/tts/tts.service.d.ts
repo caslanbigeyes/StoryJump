@@ -7,4 +7,9 @@ export declare class TtsService {
     constructor(prisma: PrismaService, ttsProvider: TTSProvider);
     generateAudioForShot(shotId: string, text: string, options?: Record<string, unknown>): Promise<string>;
     regenerateAudio(shotId: string, options?: Record<string, unknown>): Promise<string>;
+    generateAudioForTask(taskId: string, options?: Record<string, unknown>): Promise<{
+        total: number;
+        successCount: number;
+        failedCount: number;
+    }>;
 }
