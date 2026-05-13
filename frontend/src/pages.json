@@ -1,0 +1,61 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/task-list/index",
+      "style": {
+        "navigationBarTitleText": "我的任务"
+      }
+    },
+    {
+      "path": "pages/task-create/index",
+      "style": {
+        "navigationBarTitleText": "创建任务"
+      }
+    },
+    {
+      "path": "pages/task-detail/index",
+      "style": {
+        "navigationBarTitleText": "任务详情"
+      }
+    },
+    {
+      "path": "pages/script-edit/index",
+      "style": {
+        "navigationBarTitleText": "编辑文案"
+      }
+    },
+    {
+      "path": "pages/storyboard/index",
+      "style": {
+        "navigationBarTitleText": "分镜列表"
+      }
+    },
+    {
+      "path": "pages/export/index",
+      "style": {
+        "navigationBarTitleText": "导出视频"
+      }
+    }
+  ],
+  "tabBar": {
+    "list": [
+      {
+        "pagePath": "pages/task-list/index",
+        "text": "任务"
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "StoryJump",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f5f7fa"
+  }
+}

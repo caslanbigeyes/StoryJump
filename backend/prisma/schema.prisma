@@ -1,0 +1,78 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  password     String
+  credits      Int           @default(0)
+  createdAt    DateTime      @default(now())
+  tasks        Task[]
+  usageRecords UsageRecord[]
+}
+
+model Task {
+  id           String      @id @default(cuid())
+  userId       String
+  title        String
+  status       String      @default("pending")
+  currentStep  String      @default("create_script")
+  progress     Int         @default(0)
+  // skills.md 输入参数（JSON 字符串）
+  inputJson    String?
+  // 生成的完整 StoryboardOutput（JSON 字符串）
+  outputJson   String?
+  errorMessage String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  user         User        @relation(fields: [userId], references: [id])
+  shots        Shot[]
+  assets       Asset[]
+  usageRecords UsageRecord[]
+}
+
+model Shot {
+  id              String   @id @default(cuid())
+  taskId          String
+  shotIndex       Int
+  sceneText       String?
+  cameraAngle     String?
+  characterAction String?
+  imagePrompt     String?
+  imageUrl        String?
+  audioUrl        String?
+  status          String   @default("pending")
+  task            Task     @relation(fields: [taskId], references: [id])
+  assets          Asset[]
+}
+
+model Asset {
+  id       String  @id @default(cuid())
+  taskId   String
+  shotId   String?
+  type     String  // image | audio | video
+  url      String
+  provider String
+  task     Task    @relation(fields: [taskId], references: [id])
+  shot     Shot?   @relation(fields: [shotId], references: [id])
+}
+
+model UsageRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  taskId    String
+  type      String
+  credits   Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  task      Task     @relation(fields: [taskId], references: [id])
+}
