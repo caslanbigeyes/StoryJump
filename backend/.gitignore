@@ -14,4 +14,4 @@
 **/.eslintcache     
 **/.prettiercache
 **/.vscode
-.env
+/.env
