@@ -14,7 +14,7 @@ const bigmodel_provider_1 = require("./llm/bigmodel.provider");
 const image_provider_1 = require("./image/image.provider");
 const kling_provider_1 = require("./image/kling.provider");
 const tts_provider_1 = require("./tts/tts.provider");
-const volcano_provider_1 = require("./tts/volcano.provider");
+const siliconflow_provider_1 = require("./tts/siliconflow.provider");
 let ProvidersModule = class ProvidersModule {
 };
 exports.ProvidersModule = ProvidersModule;
@@ -32,7 +32,7 @@ exports.ProvidersModule = ProvidersModule = __decorate([
             },
             {
                 provide: tts_provider_1.TTS_PROVIDER_TOKEN,
-                useClass: volcano_provider_1.VolcanoTTSProvider,
+                useClass: siliconflow_provider_1.SiliconFlowTTSProvider,
             },
         ],
         exports: [llm_provider_1.LLM_PROVIDER_TOKEN, image_provider_1.IMAGE_PROVIDER_TOKEN, tts_provider_1.TTS_PROVIDER_TOKEN],

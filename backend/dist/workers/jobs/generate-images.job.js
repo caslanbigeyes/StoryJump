@@ -4,7 +4,7 @@ exports.handleGenerateImagesJob = handleGenerateImagesJob;
 const common_1 = require("@nestjs/common");
 const task_status_enum_1 = require("../../common/enums/task-status.enum");
 const BATCH_SIZE = 2;
-async function handleGenerateImagesJob(job, prisma, imageProvider) {
+async function handleGenerateImagesJob(job, prisma, imageProvider, queue) {
     const logger = new common_1.Logger('GenerateImagesJob');
     const { taskId, options } = job.data;
     logger.log(`[task:${taskId}] start generate-images`);
@@ -74,6 +74,20 @@ async function handleGenerateImagesJob(job, prisma, imageProvider) {
             where: { taskId, status: 'image_done' },
         });
         logger.log(`[task:${taskId}] generate-images done: success=${successCount}, failed=${failedCount}`);
+        if (queue && successCount > 0) {
+            await prisma.task.update({
+                where: { id: taskId },
+                data: {
+                    currentStep: task_status_enum_1.TaskStep.GENERATE_TTS,
+                    progress: 75,
+                    ...(failedCount > 0 && {
+                        errorMessage: `${failedCount}/${total} shots failed to generate image`,
+                    }),
+                },
+            });
+            await queue.add(task_status_enum_1.TaskStep.GENERATE_TTS, { taskId }, { attempts: 2, backoff: { type: 'exponential', delay: 5000 } });
+            return;
+        }
         await prisma.task.update({
             where: { id: taskId },
             data: {

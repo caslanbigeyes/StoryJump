@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TtsService } from './tts.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { VolcanoTTSProvider } from '../../providers/tts/volcano.provider';
+import { SiliconFlowTTSProvider } from '../../providers/tts/siliconflow.provider';
 import { TTSProvider } from '../../providers/tts/tts.provider';
 
 @Module({
@@ -10,7 +10,7 @@ import { TTSProvider } from '../../providers/tts/tts.provider';
     PrismaService,
     {
       provide: TTSProvider,
-      useClass: VolcanoTTSProvider,
+      useClass: SiliconFlowTTSProvider,
     },
   ],
   exports: [TtsService],

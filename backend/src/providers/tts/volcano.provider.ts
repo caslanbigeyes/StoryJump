@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { TTSProvider } from './tts.provider';
 
 @Injectable()
@@ -19,6 +18,10 @@ export class VolcanoTTSProvider extends TTSProvider {
 
   async generateVoice(text: string, options?: Record<string, unknown>): Promise<string> {
     this.logger.log(`Generating TTS voice for text: ${text.substring(0, 30)}...`);
+    if (!this.appId || !this.accessKey || !this.secretKey) {
+      throw new Error('TTS 未配置：缺少 TTS_APP_ID、TTS_ACCESS_KEY 或 TTS_SECRET_KEY，无法生成配音');
+    }
+
     // TODO: 实现火山引擎 TTS API 调用
     // 1. 构建鉴权签名
     // 2. 发送 TTS 请求
@@ -49,6 +52,6 @@ export class VolcanoTTSProvider extends TTSProvider {
     };
     // TODO: 真实的 API 调用与音频上传
     this.logger.debug('TTS payload prepared', payload);
-    return 'https://example.com/audio/placeholder.mp3';
+    throw new Error('TTS provider 尚未接入真实火山引擎接口，当前不会生成可播放音频');
   }
 }

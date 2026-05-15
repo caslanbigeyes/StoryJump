@@ -5,7 +5,7 @@ import { BigModelProvider } from './llm/bigmodel.provider';
 import { IMAGE_PROVIDER_TOKEN } from './image/image.provider';
 import { KlingImageProvider } from './image/kling.provider';
 import { TTS_PROVIDER_TOKEN } from './tts/tts.provider';
-import { VolcanoTTSProvider } from './tts/volcano.provider';
+import { SiliconFlowTTSProvider } from './tts/siliconflow.provider';
 
 @Module({
   imports: [ConfigModule],
@@ -20,7 +20,7 @@ import { VolcanoTTSProvider } from './tts/volcano.provider';
     },
     {
       provide: TTS_PROVIDER_TOKEN,
-      useClass: VolcanoTTSProvider,
+      useClass: SiliconFlowTTSProvider,
     },
   ],
   exports: [LLM_PROVIDER_TOKEN, IMAGE_PROVIDER_TOKEN, TTS_PROVIDER_TOKEN],

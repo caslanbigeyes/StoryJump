@@ -10,7 +10,7 @@ exports.TtsModule = void 0;
 const common_1 = require("@nestjs/common");
 const tts_service_1 = require("./tts.service");
 const prisma_service_1 = require("../../prisma/prisma.service");
-const volcano_provider_1 = require("../../providers/tts/volcano.provider");
+const siliconflow_provider_1 = require("../../providers/tts/siliconflow.provider");
 const tts_provider_1 = require("../../providers/tts/tts.provider");
 let TtsModule = class TtsModule {
 };
@@ -22,7 +22,7 @@ exports.TtsModule = TtsModule = __decorate([
             prisma_service_1.PrismaService,
             {
                 provide: tts_provider_1.TTSProvider,
-                useClass: volcano_provider_1.VolcanoTTSProvider,
+                useClass: siliconflow_provider_1.SiliconFlowTTSProvider,
             },
         ],
         exports: [tts_service_1.TtsService],

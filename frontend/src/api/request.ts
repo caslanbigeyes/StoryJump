@@ -4,7 +4,7 @@
 
 function resolveBaseUrl(): string {
   if (typeof window === 'undefined') {
-    return 'http://127.0.0.1:3000/api';
+    return 'http://127.0.0.1:3010/api';
   }
 
   const runtimeBaseUrl =
@@ -14,7 +14,7 @@ function resolveBaseUrl(): string {
 
   const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') {
-    return 'http://127.0.0.1:3000/api';
+    return 'http://127.0.0.1:3010/api';
   }
 
   return '/api';

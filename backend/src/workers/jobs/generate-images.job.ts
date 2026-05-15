@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { Job } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageProvider } from '../../providers/image/image.provider';
 import { TaskStatus, TaskStep } from '../../common/enums/task-status.enum';
@@ -20,6 +20,7 @@ export async function handleGenerateImagesJob(
   job: Job<GenerateImagesJobData>,
   prisma: PrismaService,
   imageProvider: ImageProvider,
+  queue?: Queue,
 ): Promise<void> {
   const logger = new Logger('GenerateImagesJob');
   const { taskId, options } = job.data;
@@ -110,7 +111,26 @@ export async function handleGenerateImagesJob(
 
     logger.log(`[task:${taskId}] generate-images done: success=${successCount}, failed=${failedCount}`);
 
-    // 只要有成功生图就标记任务完成（部分失败不阻塞）
+    if (queue && successCount > 0) {
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          currentStep: TaskStep.GENERATE_TTS,
+          progress: 75,
+          ...(failedCount > 0 && {
+            errorMessage: `${failedCount}/${total} shots failed to generate image`,
+          }),
+        },
+      });
+
+      await queue.add(
+        TaskStep.GENERATE_TTS,
+        { taskId },
+        { attempts: 2, backoff: { type: 'exponential', delay: 5000 } },
+      );
+      return;
+    }
+
     await prisma.task.update({
       where: { id: taskId },
       data: {

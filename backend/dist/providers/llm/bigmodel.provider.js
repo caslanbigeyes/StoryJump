@@ -113,21 +113,31 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
         this.configService = configService;
         this.logger = new common_1.Logger(BigModelProvider_1.name);
         const baseURL = this.configService.get('LLM_BASE_URL') ?? 'https://open.bigmodel.cn/api/paas/v4';
-        const apiKey = this.configService.get('LLM_API_KEY') ?? '';
+        this.apiKey = this.configService.get('LLM_API_KEY') ?? '';
         this.model = this.configService.get('LLM_CHAT_MODEL') ?? 'glm-4-flash';
         this.fallbackApiKey = this.configService.get('DEEPSEEK_API_KEY') ?? '';
-        this.fallbackBaseUrl = this.configService.get('DEEPSEEK_BASE_URL') ?? 'https://api.deepseek.com/v1';
+        this.fallbackBaseUrl =
+            this.configService.get('DEEPSEEK_API_BASE_URL') ??
+                this.configService.get('DEEPSEEK_BASE_URL') ??
+                'https://api.deepseek.com/v1';
         this.fallbackModel = this.configService.get('DEEPSEEK_MODEL') ?? 'deepseek-chat';
         this.http = axios_1.default.create({
             baseURL,
             headers: {
-                Authorization: `Bearer ${apiKey}`,
+                Authorization: `Bearer ${this.apiKey}`,
                 'Content-Type': 'application/json',
             },
             timeout: 120_000,
         });
     }
     async chat(systemPrompt, userMessage, temperature = 0.7) {
+        if (!this.apiKey && !this.fallbackApiKey) {
+            throw new Error('缺少 LLM_API_KEY 或 DEEPSEEK_API_KEY，无法生成剧本');
+        }
+        if (!this.apiKey) {
+            this.logger.warn('LLM_API_KEY is empty, using DeepSeek fallback.');
+            return this.chatFallback(systemPrompt, userMessage, temperature);
+        }
         try {
             const resp = await this.http.post('/chat/completions', {
                 model: this.model,
@@ -142,8 +152,12 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
         }
         catch (err) {
             this.logger.warn(`BigModel failed (${err?.message}), trying DeepSeek fallback...`);
-            if (!this.fallbackApiKey)
-                throw err;
+            if (!this.fallbackApiKey) {
+                const detail = err?.response?.data?.error ?? err?.response?.data ?? err?.message ?? String(err);
+                throw new Error(typeof detail === 'object'
+                    ? (detail.message ?? JSON.stringify(detail))
+                    : detail);
+            }
             return this.chatFallback(systemPrompt, userMessage, temperature);
         }
     }
@@ -165,7 +179,7 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
         });
         return resp.data.choices[0].message.content;
     }
-    extractJSON(raw) {
+    prepareJSON(raw) {
         let cleaned = raw
             .replace(/^```(?:json)?\s*/im, '')
             .replace(/\s*```\s*$/im, '')
@@ -183,20 +197,76 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
             cleaned = cleaned.slice(startIdx);
         cleaned = cleaned.replace(/\/\/[^\n\r]*/g, '');
         cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+        return cleaned;
+    }
+    extractJSON(raw) {
+        const cleaned = this.prepareJSON(raw);
         return JSON.parse(cleaned);
+    }
+    async extractJSONWithRepair(raw, context) {
+        try {
+            return this.extractJSON(raw);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const cleaned = this.prepareJSON(raw);
+            this.logger.warn(`[${context}] JSON parse failed: ${message}. Requesting JSON repair...`);
+            const repaired = await this.chat('你是 JSON 修复器。只输出合法 JSON，不要输出 Markdown、解释、代码块或额外文字。', `下面 JSON 字符串解析失败，请在不改变字段含义的前提下修复为严格合法 JSON。
+
+错误信息：
+${message}
+
+待修复内容：
+${cleaned}`, 0);
+            try {
+                return this.extractJSON(repaired);
+            }
+            catch (repairError) {
+                const repairMessage = repairError instanceof Error ? repairError.message : String(repairError);
+                this.logger.error(`[${context}] JSON repair failed: ${repairMessage}. Original length=${cleaned.length}, repaired length=${repaired.length}`);
+                throw new Error(`AI 返回的 JSON 格式无效，自动修复失败：${repairMessage}`);
+            }
+        }
     }
     async generateStoryboard(input) {
         this.logger.log(`[generateStoryboard] title="${input.title}" shots=${input.shot_count}`);
-        const userMessage = `请根据以下输入，严格按照输出模板生成完整分镜数据：
-
-输入：
-${JSON.stringify(input, null, 2)}
-
-${STORYBOARD_OUTPUT_TEMPLATE}
-
-注意：shots 数组长度必须严格等于 shot_count=${input.shot_count}`;
-        const raw = await this.chat(DIRECTOR_SYSTEM_PROMPT, userMessage, 0.75);
-        const output = this.extractJSON(raw);
+        const script = await this.generateScript(input);
+        const characterBible = this.buildCharacterBible(input);
+        const shots = await this.splitStoryboard(script, input);
+        const normalizedShots = this.normalizeShots(shots, input);
+        const meta = {
+            title: script.title || input.title,
+            genre: input.genre,
+            duration: input.target_duration,
+            shot_count: input.shot_count,
+            aspect_ratio: input.aspect_ratio,
+            visual_style: input.visual_style,
+        };
+        const prompts = await this.generateImagePrompts(normalizedShots, characterBible, meta);
+        const promptByShotId = new Map(prompts.map((prompt) => [prompt.shot_id, prompt]));
+        const output = {
+            meta,
+            character_bible: characterBible,
+            script,
+            shots: normalizedShots.map((shot) => {
+                const prompt = promptByShotId.get(shot.shot_id);
+                return {
+                    ...shot,
+                    image_prompt: prompt?.image_prompt || shot.image_prompt || this.buildFallbackImagePrompt(shot, input),
+                    negative_prompt: prompt?.negative_prompt ||
+                        shot.negative_prompt ||
+                        'modern clothing, phone, car, text, watermark, extra fingers, distorted face, low quality, blurry',
+                };
+            }),
+            validation: {
+                shot_count_match: normalizedShots.length === input.shot_count,
+                character_consistency: true,
+                era_consistency: true,
+                all_actions_visualizable: true,
+                no_abstract_only_shots: true,
+                all_prompts_ready: true,
+            },
+        };
         output.validation = {
             shot_count_match: output.shots?.length === input.shot_count,
             character_consistency: true,
@@ -207,6 +277,91 @@ ${STORYBOARD_OUTPUT_TEMPLATE}
         };
         this.logger.log(`[generateStoryboard] done, shots=${output.shots?.length}, prompts_ready=${output.validation.all_prompts_ready}`);
         return output;
+    }
+    buildCharacterBible(input) {
+        if (input.main_characters.length > 0) {
+            return input.main_characters.map((character, index) => ({
+                character_id: `char_${String(index + 1).padStart(3, '0')}`,
+                name: character.name,
+                fixed_description: `${character.gender}, ${character.age}岁, ${character.appearance}`,
+                default_costume: `${input.era}风格服装, ${input.visual_style}`,
+                forbidden_changes: ['不要改变年龄', '不要改变性别', '不要改变核心外貌特征', '不要出现现代违和物品'],
+            }));
+        }
+        return [
+            {
+                character_id: 'char_001',
+                name: input.topic || input.title,
+                fixed_description: `${input.era}背景下的核心角色, 风格：${input.visual_style}`,
+                default_costume: `${input.era}风格服装`,
+                forbidden_changes: ['不要改变核心角色身份', '不要出现现代违和物品'],
+            },
+        ];
+    }
+    normalizeShots(shots, input) {
+        const sourceShots = [...shots];
+        while (sourceShots.length < input.shot_count) {
+            const index = sourceShots.length;
+            sourceShots.push({
+                shot_id: index + 1,
+                duration: Math.max(3, Math.round(input.target_duration / input.shot_count)),
+                scene: `${input.topic} 的延展场景 ${index + 1}`,
+                time: input.era,
+                location: input.location,
+                character: input.main_characters.map((character) => character.name),
+                action: `${input.topic} 在故事中继续推进`,
+                emotion: input.tone,
+                camera: { shot_size: 'medium shot', angle: 'eye level', movement: 'slow push in' },
+                visual: {
+                    lighting: 'cinematic soft light',
+                    color_palette: input.tone,
+                    composition: 'rule of thirds composition',
+                },
+                narration: '',
+                image_prompt: '',
+                negative_prompt: '',
+            });
+        }
+        return sourceShots.slice(0, input.shot_count).map((shot, index) => ({
+            shot_id: index + 1,
+            duration: Number.isFinite(shot.duration) && shot.duration > 0
+                ? shot.duration
+                : Math.max(3, Math.round(input.target_duration / input.shot_count)),
+            scene: shot.scene || `${input.topic} 场景 ${index + 1}`,
+            time: shot.time || input.era,
+            location: shot.location || input.location,
+            character: Array.isArray(shot.character) ? shot.character : [],
+            action: shot.action || shot.scene || `${input.topic} 的关键动作`,
+            emotion: shot.emotion || input.tone,
+            camera: {
+                shot_size: shot.camera?.shot_size || 'medium shot',
+                angle: shot.camera?.angle || 'eye level',
+                movement: shot.camera?.movement || 'slow push in',
+            },
+            visual: {
+                lighting: shot.visual?.lighting || 'cinematic soft light',
+                color_palette: shot.visual?.color_palette || input.tone,
+                composition: shot.visual?.composition || 'rule of thirds composition',
+            },
+            narration: shot.narration || '',
+            image_prompt: shot.image_prompt || '',
+            negative_prompt: shot.negative_prompt || '',
+        }));
+    }
+    buildFallbackImagePrompt(shot, input) {
+        return [
+            input.visual_style,
+            input.era,
+            input.location,
+            shot.scene,
+            shot.action,
+            shot.camera.shot_size,
+            shot.camera.angle,
+            shot.camera.movement,
+            shot.visual.lighting,
+            shot.visual.color_palette,
+            input.aspect_ratio,
+        ].filter(Boolean).join(', ');
     }
     async generateScript(input) {
         this.logger.log(`[generateScript] title="${input.title}"`);
@@ -223,29 +378,60 @@ ${STORYBOARD_OUTPUT_TEMPLATE}
 }`;
         const userMessage = `输入：\n${JSON.stringify(input, null, 2)}`;
         const raw = await this.chat(systemPrompt, userMessage, 0.75);
-        return this.extractJSON(raw);
+        return this.extractJSONWithRepair(raw, 'generateScript');
     }
     async splitStoryboard(script, input) {
         this.logger.log(`[splitStoryboard] shot_count=${input.shot_count}`);
+        const batchSize = 5;
+        if (input.shot_count > batchSize) {
+            const batches = [];
+            for (let start = 1; start <= input.shot_count; start += batchSize) {
+                const count = Math.min(batchSize, input.shot_count - start + 1);
+                this.logger.log(`[splitStoryboard] batch start=${start} count=${count}`);
+                const batch = await this.splitStoryboardBatch(script, input, start, count);
+                batches.push(...batch);
+            }
+            return batches.slice(0, input.shot_count);
+        }
+        return this.splitStoryboardBatch(script, input, 1, input.shot_count);
+    }
+    async splitStoryboardBatch(script, input, startShotId, shotCount) {
+        const endShotId = startShotId + shotCount - 1;
         const systemPrompt = `${DIRECTOR_SYSTEM_PROMPT}
 
-本次任务：根据已有剧本和角色设定，生成 shots 数组。
+本次任务：根据已有剧本和角色设定，只生成第 ${startShotId} 到第 ${endShotId} 个分镜的 shots 数组。
 输出格式：JSON 数组，每个元素严格遵守 ShotData 结构。
-shots 数量必须等于 ${input.shot_count}。`;
+shots 数量必须等于 ${shotCount}。
+shot_id 必须从 ${startShotId} 连续编号到 ${endShotId}。`;
         const userMessage = `剧本：\n${JSON.stringify(script, null, 2)}\n\n任务参数：\n${JSON.stringify({
             era: input.era,
             location: input.location,
             tone: input.tone,
-            shot_count: input.shot_count,
+            total_shot_count: input.shot_count,
+            current_batch_start_shot_id: startShotId,
+            current_batch_shot_count: shotCount,
             aspect_ratio: input.aspect_ratio,
             visual_style: input.visual_style,
             main_characters: input.main_characters,
         }, null, 2)}`;
         const raw = await this.chat(systemPrompt, userMessage, 0.7);
-        return this.extractJSON(raw);
+        return this.extractJSONWithRepair(raw, 'splitStoryboard');
     }
     async generateImagePrompts(shots, characterBible, meta) {
         this.logger.log(`[generateImagePrompts] shots=${shots.length}`);
+        const batchSize = 5;
+        if (shots.length > batchSize) {
+            const prompts = [];
+            for (let index = 0; index < shots.length; index += batchSize) {
+                const batch = shots.slice(index, index + batchSize);
+                this.logger.log(`[generateImagePrompts] batch shots=${batch.map((shot) => shot.shot_id).join(',')}`);
+                prompts.push(...await this.generateImagePromptsBatch(batch, characterBible, meta));
+            }
+            return prompts;
+        }
+        return this.generateImagePromptsBatch(shots, characterBible, meta);
+    }
+    async generateImagePromptsBatch(shots, characterBible, meta) {
         const systemPrompt = `你是专业 AI 绘图 Prompt 工程师。
 你的职责：把每个分镜转成高质量英文生图 Prompt。
 
@@ -258,7 +444,7 @@ Prompt 规范：
 [{ "shot_id": 1, "image_prompt": "...", "negative_prompt": "..." }]`;
         const userMessage = `character_bible：\n${JSON.stringify(characterBible, null, 2)}\n\nmeta：\n${JSON.stringify(meta, null, 2)}\n\nshots：\n${JSON.stringify(shots, null, 2)}`;
         const raw = await this.chat(systemPrompt, userMessage, 0.6);
-        return this.extractJSON(raw);
+        return this.extractJSONWithRepair(raw, 'generateImagePrompts');
     }
 };
 exports.BigModelProvider = BigModelProvider;

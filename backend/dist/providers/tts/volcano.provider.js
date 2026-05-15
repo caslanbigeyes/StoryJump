@@ -25,6 +25,9 @@ let VolcanoTTSProvider = VolcanoTTSProvider_1 = class VolcanoTTSProvider extends
     }
     async generateVoice(text, options) {
         this.logger.log(`Generating TTS voice for text: ${text.substring(0, 30)}...`);
+        if (!this.appId || !this.accessKey || !this.secretKey) {
+            throw new Error('TTS 未配置：缺少 TTS_APP_ID、TTS_ACCESS_KEY 或 TTS_SECRET_KEY，无法生成配音');
+        }
         const payload = {
             app: {
                 appid: this.appId,
@@ -49,7 +52,7 @@ let VolcanoTTSProvider = VolcanoTTSProvider_1 = class VolcanoTTSProvider extends
             },
         };
         this.logger.debug('TTS payload prepared', payload);
-        return 'https://example.com/audio/placeholder.mp3';
+        throw new Error('TTS provider 尚未接入真实火山引擎接口，当前不会生成可播放音频');
     }
 };
 exports.VolcanoTTSProvider = VolcanoTTSProvider;

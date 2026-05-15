@@ -11,6 +11,22 @@ import type {
 export interface CreateTaskParams {
   title: string;
   topic: string;
+  genre?: string;
+  era?: string;
+  location?: string;
+  tone?: string;
+  target_duration?: number;
+  shot_count?: number;
+  aspect_ratio?: string;
+  language?: string;
+  visual_style?: string;
+  main_characters?: Array<{
+    name: string;
+    age: number;
+    gender: string;
+    appearance: string;
+    personality: string;
+  }>;
   options?: Record<string, unknown>;
 }
 

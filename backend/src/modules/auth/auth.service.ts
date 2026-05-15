@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface LoginDto {
@@ -18,6 +19,24 @@ export interface AuthPayload {
   email: string;
 }
 
+const scrypt = promisify(scryptCallback);
+const PASSWORD_PREFIX = 'scrypt';
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = (await scrypt(password, salt, 64)) as Buffer;
+  return `${PASSWORD_PREFIX}:${salt}:${derivedKey.toString('hex')}`;
+}
+
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  const [prefix, salt, key] = storedHash.split(':');
+  if (prefix !== PASSWORD_PREFIX || !salt || !key) return false;
+
+  const storedKey = Buffer.from(key, 'hex');
+  const derivedKey = (await scrypt(password, salt, storedKey.length)) as Buffer;
+  return storedKey.length === derivedKey.length && timingSafeEqual(storedKey, derivedKey);
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -33,7 +52,7 @@ export class AuthService {
     }
 
     // TODO: 哈希密码并创建用户
-    const hashed = await bcrypt.hash(dto.password, 10);
+    const hashed = await hashPassword(dto.password);
     const user = await this.prisma.user.create({
       data: { email: dto.email, password: hashed, credits: 100 },
     });
@@ -49,7 +68,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const passwordMatch = await bcrypt.compare(dto.password, user.password);
+    const passwordMatch = await verifyPassword(dto.password, user.password);
     if (!passwordMatch) {
       throw new UnauthorizedException('Invalid credentials');
     }

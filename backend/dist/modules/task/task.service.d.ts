@@ -48,10 +48,10 @@ export declare class TaskService {
     }>;
     getTaskById(taskId: string): Promise<{
         shots: {
+            taskId: string;
             id: string;
             status: string;
             shotIndex: number;
-            taskId: string;
             sceneText: string | null;
             cameraAngle: string | null;
             characterAction: string | null;
@@ -61,6 +61,7 @@ export declare class TaskService {
         }[];
     } & {
         id: string;
+        userId: string;
         title: string;
         status: string;
         currentStep: string;
@@ -70,7 +71,6 @@ export declare class TaskService {
         errorMessage: string | null;
         createdAt: Date;
         updatedAt: Date;
-        userId: string;
     }>;
     getTaskStatus(taskId: string): Promise<{
         status: string;
@@ -79,10 +79,10 @@ export declare class TaskService {
         errorMessage: string;
     }>;
     getTaskShots(taskId: string): Promise<{
+        taskId: string;
         id: string;
         status: string;
         shotIndex: number;
-        taskId: string;
         sceneText: string | null;
         cameraAngle: string | null;
         characterAction: string | null;

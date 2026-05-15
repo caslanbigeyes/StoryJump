@@ -12,8 +12,24 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
-const bcrypt = require("bcrypt");
+const node_crypto_1 = require("node:crypto");
+const node_util_1 = require("node:util");
 const prisma_service_1 = require("../../prisma/prisma.service");
+const scrypt = (0, node_util_1.promisify)(node_crypto_1.scrypt);
+const PASSWORD_PREFIX = 'scrypt';
+async function hashPassword(password) {
+    const salt = (0, node_crypto_1.randomBytes)(16).toString('hex');
+    const derivedKey = (await scrypt(password, salt, 64));
+    return `${PASSWORD_PREFIX}:${salt}:${derivedKey.toString('hex')}`;
+}
+async function verifyPassword(password, storedHash) {
+    const [prefix, salt, key] = storedHash.split(':');
+    if (prefix !== PASSWORD_PREFIX || !salt || !key)
+        return false;
+    const storedKey = Buffer.from(key, 'hex');
+    const derivedKey = (await scrypt(password, salt, storedKey.length));
+    return storedKey.length === derivedKey.length && (0, node_crypto_1.timingSafeEqual)(storedKey, derivedKey);
+}
 let AuthService = class AuthService {
     constructor(prisma, jwtService) {
         this.prisma = prisma;
@@ -24,7 +40,7 @@ let AuthService = class AuthService {
         if (exists) {
             throw new common_1.UnauthorizedException('Email already registered');
         }
-        const hashed = await bcrypt.hash(dto.password, 10);
+        const hashed = await hashPassword(dto.password);
         const user = await this.prisma.user.create({
             data: { email: dto.email, password: hashed, credits: 100 },
         });
@@ -36,7 +52,7 @@ let AuthService = class AuthService {
         if (!user) {
             throw new common_1.UnauthorizedException('Invalid credentials');
         }
-        const passwordMatch = await bcrypt.compare(dto.password, user.password);
+        const passwordMatch = await verifyPassword(dto.password, user.password);
         if (!passwordMatch) {
             throw new common_1.UnauthorizedException('Invalid credentials');
         }

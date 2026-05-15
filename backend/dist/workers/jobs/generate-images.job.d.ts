@@ -1,4 +1,4 @@
-import { Job } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageProvider } from '../../providers/image/image.provider';
 export interface GenerateImagesJobData {
@@ -9,4 +9,4 @@ export interface GenerateImagesJobData {
         [key: string]: unknown;
     };
 }
-export declare function handleGenerateImagesJob(job: Job<GenerateImagesJobData>, prisma: PrismaService, imageProvider: ImageProvider): Promise<void>;
+export declare function handleGenerateImagesJob(job: Job<GenerateImagesJobData>, prisma: PrismaService, imageProvider: ImageProvider, queue?: Queue): Promise<void>;

@@ -65,6 +65,10 @@ export class KlingImageProvider extends ImageProvider {
     negativePrompt: string,
     aspectRatio: string,
   ): Promise<string> {
+    if (!this.accessKey || !this.secretKey) {
+      throw new Error('缺少 KLING_ACCESS_KEY 或 KLING_SECRET_KEY，无法生成分镜图片');
+    }
+
     const token = this.buildToken();
 
     let resp: Awaited<ReturnType<typeof this.http.post<KlingCreateResponse>>>;

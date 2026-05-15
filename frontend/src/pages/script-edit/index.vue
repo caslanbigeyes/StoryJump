@@ -167,7 +167,7 @@ async function handleResplit() {
     await saveCurrentScript();
     await resplitTaskStoryboard(taskId);
     uni.showToast({ title: '分镜已重新拆分', icon: 'success' });
-    router.push({ path: '/storyboard', query: { taskId } });
+    router.push({ path: '/pages/storyboard/index', query: { taskId } });
   } catch (err: unknown) {
     errorMsg.value = err instanceof Error ? err.message : '重新拆分失败';
   } finally {
@@ -177,7 +177,7 @@ async function handleResplit() {
 
 function handleOpenStoryboard() {
   if (!taskId) return;
-  router.push({ path: '/storyboard', query: { taskId } });
+  router.push({ path: '/pages/storyboard/index', query: { taskId } });
 }
 </script>
 

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TaskStep } from '../../common/enums/task-status.enum';
 
@@ -29,6 +29,7 @@ interface ActiveExportState {
 
 @Injectable()
 export class VideoService {
+  private readonly logger = new Logger(VideoService.name);
   private readonly activeExports = new Map<string, ActiveExportState>();
 
   constructor(private readonly prisma: PrismaService) {}
@@ -104,7 +105,7 @@ export class VideoService {
       throw new Error('No generated images found for this task');
     }
 
-    const readyAudio = readyShots.filter((shot) => Boolean(shot.audioUrl));
+    const readyAudio = readyShots.filter((shot) => this.isUsableAssetUrl(shot.audioUrl));
     const resolution = options.resolution ?? '1080x1920';
     const format = (options.format ?? 'mp4').toLowerCase();
     const { width, height } = this.parseResolution(resolution);
@@ -138,19 +139,30 @@ export class VideoService {
 
       for (const [index, shot] of readyShots.entries()) {
         const imagePath = join(workDir, `shot-${index.toString().padStart(3, '0')}.jpg`);
-        const audioPath = shot.audioUrl
+        const audioUrl = this.isUsableAssetUrl(shot.audioUrl) ? shot.audioUrl : null;
+        const audioPath = audioUrl
           ? join(workDir, `shot-${index.toString().padStart(3, '0')}.mp3`)
           : null;
+        let renderedAudioPath = audioPath;
         const segmentPath = join(workDir, `segment-${index.toString().padStart(3, '0')}.mp4`);
 
         await this.downloadToFile(shot.imageUrl!, imagePath);
-        if (audioPath && shot.audioUrl) {
-          await this.downloadToFile(shot.audioUrl, audioPath);
+        if (audioPath && audioUrl) {
+          try {
+            await this.downloadToFile(audioUrl, audioPath);
+          } catch (error) {
+            renderedAudioPath = null;
+            this.logger.warn(
+              `[exportTaskVideo:${taskId}] skip audio for shot ${shot.shotIndex}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
         }
 
         await this.renderSegment({
           imagePath,
-          audioPath,
+          audioPath: renderedAudioPath,
           segmentPath,
           width,
           height,
@@ -201,7 +213,7 @@ export class VideoService {
         format,
       });
 
-      const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
+      const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3010}`;
       const relativeUrl = `/public/videos/${taskId}/${outputFilename}`;
       const videoUrl = `${publicBaseUrl}${relativeUrl}`;
 
@@ -333,14 +345,27 @@ export class VideoService {
   }
 
   private async downloadToFile(url: string, filePath: string) {
-    const response = await fetch(url);
+    let response: Response;
+    try {
+      response = await fetch(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to download asset: ${url} (${message})`);
+    }
+
     if (!response.ok) {
-      throw new Error(`Failed to download asset: ${url}`);
+      throw new Error(`Failed to download asset: ${url} (${response.status} ${response.statusText})`);
     }
 
     await mkdir(dirname(filePath), { recursive: true });
     const buffer = Buffer.from(await response.arrayBuffer());
     await writeFile(filePath, buffer);
+  }
+
+  private isUsableAssetUrl(url: string | null): url is string {
+    if (!url) return false;
+    if (url.includes('example.com/') || url.includes('placeholder')) return false;
+    return url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:');
   }
 
   private async renderSegment(params: {

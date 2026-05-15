@@ -23,9 +23,9 @@ export declare class AuthService {
         token: string;
     }>;
     validateUser(payload: AuthPayload): Promise<{
-        password: string;
         id: string;
         email: string;
+        password: string;
         credits: number;
         createdAt: Date;
     }>;

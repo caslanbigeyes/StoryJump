@@ -48,9 +48,9 @@ export declare class TaskController {
     }>;
     getTask(id: string): Promise<{
         shots: {
+            taskId: string;
             id: string;
             status: string;
-            taskId: string;
             shotIndex: number;
             sceneText: string | null;
             cameraAngle: string | null;
@@ -79,9 +79,9 @@ export declare class TaskController {
         errorMessage: string;
     }>;
     getTaskShots(id: string): Promise<{
+        taskId: string;
         id: string;
         status: string;
-        taskId: string;
         shotIndex: number;
         sceneText: string | null;
         cameraAngle: string | null;
@@ -95,9 +95,9 @@ export declare class TaskController {
     rewriteTaskScript(id: string, dto: RewriteScriptDto): Promise<import("../../providers/llm/llm.provider").StoryboardOutput>;
     resplitTaskStoryboard(id: string): Promise<import("../../providers/llm/llm.provider").StoryboardOutput>;
     updateShot(shotId: string, dto: UpdateShotDto): Promise<{
+        taskId: string;
         id: string;
         status: string;
-        taskId: string;
         shotIndex: number;
         sceneText: string | null;
         cameraAngle: string | null;

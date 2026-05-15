@@ -72,7 +72,7 @@ let PipelineWorker = PipelineWorker_1 = class PipelineWorker {
                 await (0, generate_prompts_job_1.handleGeneratePromptsJob)(job, this.prisma, this.llmProvider);
                 break;
             case task_status_enum_1.TaskStep.GENERATE_IMAGES:
-                await (0, generate_images_job_1.handleGenerateImagesJob)(job, this.prisma, this.imageProvider);
+                await (0, generate_images_job_1.handleGenerateImagesJob)(job, this.prisma, this.imageProvider, this.queue);
                 break;
             case task_status_enum_1.TaskStep.GENERATE_TTS:
                 await (0, generate_tts_job_1.handleGenerateTTSJob)(job, this.prisma, this.ttsProvider);

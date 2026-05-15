@@ -74,7 +74,7 @@ export class PipelineWorker implements OnModuleInit {
         await handleGeneratePromptsJob(job, this.prisma, this.llmProvider);
         break;
       case TaskStep.GENERATE_IMAGES:
-        await handleGenerateImagesJob(job, this.prisma, this.imageProvider);
+        await handleGenerateImagesJob(job, this.prisma, this.imageProvider, this.queue);
         break;
       case TaskStep.GENERATE_TTS:
         await handleGenerateTTSJob(job, this.prisma, this.ttsProvider);

@@ -10,6 +10,8 @@ exports.AppModule = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const bull_1 = require("@nestjs/bull");
+const path_1 = require("path");
+const fs = require("fs");
 const prisma_service_1 = require("./prisma/prisma.service");
 const providers_module_1 = require("./providers/providers.module");
 const auth_module_1 = require("./modules/auth/auth.module");
@@ -20,13 +22,23 @@ const storyboard_module_1 = require("./modules/storyboard/storyboard.module");
 const image_module_1 = require("./modules/image/image.module");
 const tts_module_1 = require("./modules/tts/tts.module");
 const storage_module_1 = require("./modules/storage/storage.module");
+const envPaths = [
+    (0, path_1.join)(process.cwd(), '.env'),
+    (0, path_1.join)(process.cwd(), 'backend', '.env'),
+    (0, path_1.join)(__dirname, '../.env'),
+    (0, path_1.join)(__dirname, '../../.env'),
+    '.env',
+].filter(p => fs.existsSync(p));
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [
-            config_1.ConfigModule.forRoot({ isGlobal: true }),
+            config_1.ConfigModule.forRoot({
+                isGlobal: true,
+                envFilePath: envPaths.length > 0 ? envPaths : ['.env'],
+            }),
             bull_1.BullModule.forRootAsync({
                 imports: [config_1.ConfigModule],
                 useFactory: (configService) => {
