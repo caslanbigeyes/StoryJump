@@ -107,6 +107,37 @@ const STORYBOARD_OUTPUT_TEMPLATE = `
     "all_prompts_ready": true
   }
 }`;
+const DEFAULT_STYLE_TOKEN = [
+    'cinematic realism',
+    'Honor of Kings cinematic style',
+    'dark fantasy chinese city',
+    'film still',
+    'high contrast lighting',
+].join(', ');
+const SHOT_TYPE_TEMPLATE = [
+    'establishing_shot',
+    'wide_action_setup',
+    'medium_dialogue',
+    'closeup_emotion',
+    'action_shot',
+    'impact_shot',
+    'reaction_closeup',
+    'transition_shot',
+];
+const FIXED_NEGATIVE_PROMPT = [
+    'modern clothing',
+    'phone',
+    'car',
+    'text',
+    'watermark',
+    'extra fingers',
+    'distorted face',
+    'low quality',
+    'blurry',
+    'inconsistent style',
+    'changed face',
+    'different costume',
+].join(', ');
 let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_provider_1.LLMProvider {
     constructor(configService) {
         super();
@@ -232,7 +263,7 @@ ${cleaned}`, 0);
         this.logger.log(`[generateStoryboard] title="${input.title}" shots=${input.shot_count}`);
         const script = await this.generateScript(input);
         const characterBible = this.buildCharacterBible(input);
-        const shots = await this.splitStoryboard(script, input);
+        const shots = await this.splitStoryboard(script, input, characterBible);
         const normalizedShots = this.normalizeShots(shots, input);
         const meta = {
             title: script.title || input.title,
@@ -241,6 +272,8 @@ ${cleaned}`, 0);
             shot_count: input.shot_count,
             aspect_ratio: input.aspect_ratio,
             visual_style: input.visual_style,
+            style_token: this.buildStyleToken(input),
+            scene_context: this.buildSceneContext(input),
         };
         const prompts = await this.generateImagePrompts(normalizedShots, characterBible, meta);
         const promptByShotId = new Map(prompts.map((prompt) => [prompt.shot_id, prompt]));
@@ -255,7 +288,7 @@ ${cleaned}`, 0);
                     image_prompt: prompt?.image_prompt || shot.image_prompt || this.buildFallbackImagePrompt(shot, input),
                     negative_prompt: prompt?.negative_prompt ||
                         shot.negative_prompt ||
-                        'modern clothing, phone, car, text, watermark, extra fingers, distorted face, low quality, blurry',
+                        FIXED_NEGATIVE_PROMPT,
                 };
             }),
             validation: {
@@ -275,7 +308,7 @@ ${cleaned}`, 0);
             no_abstract_only_shots: true,
             all_prompts_ready: output.shots?.every((s) => Boolean(s.image_prompt)),
         };
-        this.logger.log(`[generateStoryboard] done, shots=${output.shots?.length}, prompts_ready=${output.validation.all_prompts_ready}`);
+        this.logger.log(`[generateStoryboard] done shots=${output.shots?.length} prompts_ready=${output.validation.all_prompts_ready}`);
         return output;
     }
     buildCharacterBible(input) {
@@ -298,20 +331,63 @@ ${cleaned}`, 0);
             },
         ];
     }
+    buildStyleToken(input) {
+        return this.dedupePromptParts([
+            input.visual_style,
+            DEFAULT_STYLE_TOKEN,
+            input.aspect_ratio,
+        ]).join(', ');
+    }
+    buildSceneContext(input) {
+        return {
+            location: input.location,
+            era: input.era,
+            tone: input.tone,
+            aspect_ratio: input.aspect_ratio,
+        };
+    }
+    getShotType(index, total) {
+        if (index === 0)
+            return 'establishing_shot';
+        if (index === total - 1)
+            return 'transition_shot';
+        return SHOT_TYPE_TEMPLATE[index % SHOT_TYPE_TEMPLATE.length];
+    }
+    getCameraByShotType(shotType) {
+        const presets = {
+            establishing_shot: { shot_size: 'wide shot', angle: 'slightly high angle', movement: 'slow push in' },
+            wide_action_setup: { shot_size: 'wide shot', angle: 'eye level', movement: 'tracking shot' },
+            medium_dialogue: { shot_size: 'medium shot', angle: 'eye level', movement: 'subtle dolly in' },
+            closeup_emotion: { shot_size: 'close-up', angle: 'eye level', movement: 'locked camera' },
+            action_shot: { shot_size: 'medium full shot', angle: 'low angle', movement: 'fast tracking shot' },
+            impact_shot: { shot_size: 'tight close-up', angle: 'low angle', movement: 'snap zoom' },
+            reaction_closeup: { shot_size: 'close-up', angle: 'three-quarter angle', movement: 'slow push in' },
+            transition_shot: { shot_size: 'wide shot', angle: 'eye level', movement: 'slow pull back' },
+        };
+        return presets[shotType] ?? { shot_size: 'medium shot', angle: 'eye level', movement: 'slow push in' };
+    }
     normalizeShots(shots, input) {
         const sourceShots = [...shots];
         while (sourceShots.length < input.shot_count) {
             const index = sourceShots.length;
+            const shotType = this.getShotType(index, input.shot_count);
             sourceShots.push({
                 shot_id: index + 1,
                 duration: Math.max(3, Math.round(input.target_duration / input.shot_count)),
+                shot_type: shotType,
+                inherit_from: index > 0 ? index : null,
                 scene: `${input.topic} 的延展场景 ${index + 1}`,
                 time: input.era,
                 location: input.location,
                 character: input.main_characters.map((character) => character.name),
                 action: `${input.topic} 在故事中继续推进`,
                 emotion: input.tone,
-                camera: { shot_size: 'medium shot', angle: 'eye level', movement: 'slow push in' },
+                continuity: {
+                    character_position: index > 0 ? '继承上一镜头位置并自然移动' : '建立角色初始位置',
+                    action_state: '动作连续推进',
+                    scene_state: `${input.location}, ${input.era}, ${input.tone}`,
+                },
+                camera: this.getCameraByShotType(shotType),
                 visual: {
                     lighting: 'cinematic soft light',
                     color_palette: input.tone,
@@ -322,46 +398,125 @@ ${cleaned}`, 0);
                 negative_prompt: '',
             });
         }
-        return sourceShots.slice(0, input.shot_count).map((shot, index) => ({
-            shot_id: index + 1,
-            duration: Number.isFinite(shot.duration) && shot.duration > 0
-                ? shot.duration
-                : Math.max(3, Math.round(input.target_duration / input.shot_count)),
-            scene: shot.scene || `${input.topic} 场景 ${index + 1}`,
-            time: shot.time || input.era,
-            location: shot.location || input.location,
-            character: Array.isArray(shot.character) ? shot.character : [],
-            action: shot.action || shot.scene || `${input.topic} 的关键动作`,
-            emotion: shot.emotion || input.tone,
-            camera: {
-                shot_size: shot.camera?.shot_size || 'medium shot',
-                angle: shot.camera?.angle || 'eye level',
-                movement: shot.camera?.movement || 'slow push in',
-            },
-            visual: {
-                lighting: shot.visual?.lighting || 'cinematic soft light',
-                color_palette: shot.visual?.color_palette || input.tone,
-                composition: shot.visual?.composition || 'rule of thirds composition',
-            },
-            narration: shot.narration || '',
-            image_prompt: shot.image_prompt || '',
-            negative_prompt: shot.negative_prompt || '',
-        }));
+        return sourceShots.slice(0, input.shot_count).map((shot, index) => {
+            const shotType = shot.shot_type || this.getShotType(index, input.shot_count);
+            const cameraPreset = this.getCameraByShotType(shotType);
+            return {
+                shot_id: index + 1,
+                duration: Number.isFinite(shot.duration) && shot.duration > 0
+                    ? shot.duration
+                    : Math.max(3, Math.round(input.target_duration / input.shot_count)),
+                shot_type: shotType,
+                inherit_from: index > 0 ? index : null,
+                scene: shot.scene || `${input.topic} 场景 ${index + 1}`,
+                time: shot.time || input.era,
+                location: shot.location || input.location,
+                character: Array.isArray(shot.character) ? shot.character : [],
+                action: shot.action || shot.scene || `${input.topic} 的关键动作`,
+                emotion: shot.emotion || input.tone,
+                continuity: {
+                    character_position: shot.continuity?.character_position ||
+                        (index > 0 ? '继承上一镜头角色位置，保持移动方向连续' : '建立角色初始站位'),
+                    action_state: shot.continuity?.action_state || shot.action || '动作连续推进',
+                    scene_state: shot.continuity?.scene_state || `${input.location}, ${input.era}, ${input.tone}`,
+                },
+                camera: {
+                    shot_size: shot.camera?.shot_size || cameraPreset.shot_size,
+                    angle: shot.camera?.angle || cameraPreset.angle,
+                    movement: shot.camera?.movement || cameraPreset.movement,
+                },
+                visual: {
+                    lighting: shot.visual?.lighting || 'cinematic soft light',
+                    color_palette: shot.visual?.color_palette || input.tone,
+                    composition: shot.visual?.composition || 'rule of thirds composition',
+                },
+                narration: shot.narration || '',
+                image_prompt: shot.image_prompt || '',
+                negative_prompt: shot.negative_prompt || '',
+            };
+        });
     }
     buildFallbackImagePrompt(shot, input) {
-        return [
-            input.visual_style,
-            input.era,
-            input.location,
-            shot.scene,
+        return this.composeControlledImagePrompt(shot, this.buildCharacterBible(input), {
+            title: input.title,
+            genre: input.genre,
+            duration: input.target_duration,
+            shot_count: input.shot_count,
+            aspect_ratio: input.aspect_ratio,
+            visual_style: input.visual_style,
+            style_token: this.buildStyleToken(input),
+            scene_context: this.buildSceneContext(input),
+        });
+    }
+    cleanImagePrompt(prompt) {
+        const abstractPattern = /\b(epic|breathtaking|emotional|dramatic|powerful|legendary|masterpiece|best quality|ultra cinematic|stunning|gorgeous|magnificent|awe-inspiring|extraordinary|incredible|amazing|wonderful|fantastic|glorious|heroic|divine|transcendent|ethereal|atmospheric|mystical|vivid|intense|cinematic atmosphere|deep emotion|powerful emotion)\b/gi;
+        return prompt
+            .replace(abstractPattern, '')
+            .replace(/史诗|震撼|惊艳|绝美|唯美|高级感|大片感|氛围感|宿命感|张力十足|令人窒息|极致|顶级/g, '')
+            .replace(/,\s*,+/g, ',')
+            .replace(/^\s*,\s*/, '')
+            .replace(/,\s*$/, '')
+            .trim();
+    }
+    composeControlledImagePrompt(shot, characterBible, meta, supplementalPrompt = '') {
+        const charMap = new Map(characterBible.map((c) => [c.name, c]));
+        const characterLayer = (shot.character || [])
+            .map((charName) => {
+            const entry = charMap.get(charName) ?? [...charMap.values()].find((c) => charName.includes(c.name) || c.name.includes(charName));
+            return entry ? `${entry.fixed_description}, wearing ${entry.default_costume}` : charName;
+        })
+            .filter(Boolean);
+        const layers = [
+            ...characterLayer,
             shot.action,
-            shot.camera.shot_size,
-            shot.camera.angle,
-            shot.camera.movement,
-            shot.visual.lighting,
-            shot.visual.color_palette,
-            input.aspect_ratio,
-        ].filter(Boolean).join(', ');
+            shot.continuity?.character_position,
+            shot.continuity?.action_state,
+            shot.scene,
+            shot.location || meta.scene_context?.location,
+            shot.time || meta.scene_context?.era,
+            shot.shot_type,
+            shot.camera?.shot_size,
+            shot.camera?.angle,
+            shot.camera?.movement,
+            shot.visual?.lighting,
+            shot.visual?.color_palette,
+            shot.visual?.composition,
+            meta.style_token || meta.visual_style,
+            meta.aspect_ratio,
+            supplementalPrompt,
+        ];
+        return this.dedupePromptParts(layers.map((part) => this.cleanImagePrompt(String(part || '')))).join(', ');
+    }
+    dedupePromptParts(parts) {
+        const seen = new Set();
+        const result = [];
+        for (const part of parts) {
+            const chunks = part
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean);
+            for (const chunk of chunks) {
+                const key = chunk.toLowerCase();
+                if (seen.has(key))
+                    continue;
+                seen.add(key);
+                result.push(chunk);
+            }
+        }
+        return result;
+    }
+    extractShotState(shot) {
+        return {
+            shot_id: shot.shot_id,
+            location: shot.location,
+            time: shot.time,
+            lighting: shot.visual.lighting,
+            color_palette: shot.visual.color_palette,
+            characters: shot.character.reduce((acc, name) => {
+                acc[name] = `${shot.action} / ${shot.emotion}`;
+                return acc;
+            }, {}),
+        };
     }
     async generateScript(input) {
         this.logger.log(`[generateScript] title="${input.title}"`);
@@ -380,71 +535,228 @@ ${cleaned}`, 0);
         const raw = await this.chat(systemPrompt, userMessage, 0.75);
         return this.extractJSONWithRepair(raw, 'generateScript');
     }
-    async splitStoryboard(script, input) {
+    async splitStoryboard(script, input, characterBible = []) {
         this.logger.log(`[splitStoryboard] shot_count=${input.shot_count}`);
-        const batchSize = 5;
-        if (input.shot_count > batchSize) {
-            const batches = [];
-            for (let start = 1; start <= input.shot_count; start += batchSize) {
-                const count = Math.min(batchSize, input.shot_count - start + 1);
-                this.logger.log(`[splitStoryboard] batch start=${start} count=${count}`);
-                const batch = await this.splitStoryboardBatch(script, input, start, count);
-                batches.push(...batch);
-            }
-            return batches.slice(0, input.shot_count);
-        }
-        return this.splitStoryboardBatch(script, input, 1, input.shot_count);
+        const beats = await this.generateBeats(script, input);
+        this.logger.log(`[splitStoryboard] beats=${beats.length} events=${beats.map((b) => b.event).join(' → ')}`);
+        return this.splitShotsByBeats(script, beats, input, characterBible);
     }
-    async splitStoryboardBatch(script, input, startShotId, shotCount) {
-        const endShotId = startShotId + shotCount - 1;
-        const systemPrompt = `${DIRECTOR_SYSTEM_PROMPT}
+    async generateBeats(script, input) {
+        const beatCount = Math.min(8, Math.max(5, Math.round(input.shot_count / 3)));
+        const systemPrompt = `你是故事节拍导演（Beat Planner）。
+你的任务：把剧本拆解为"剧情节拍"序列，确保故事有因果推进，而不是重复同一气氛。
 
-本次任务：根据已有剧本和角色设定，只生成第 ${startShotId} 到第 ${endShotId} 个分镜的 shots 数组。
-输出格式：JSON 数组，每个元素严格遵守 ShotData 结构。
-shots 数量必须等于 ${shotCount}。
-shot_id 必须从 ${startShotId} 连续编号到 ${endShotId}。`;
-        const userMessage = `剧本：\n${JSON.stringify(script, null, 2)}\n\n任务参数：\n${JSON.stringify({
+核心原则：
+- 每个 Beat = 一个"事件"（发生了什么），不是"感受"或"气氛"
+- Beat 序列必须有因果推进：每个 Beat 因前一个 Beat 而发生
+- narration 必须是一句推动剧情向前的旁白（不能重复描述气氛，不能与其他 Beat 相似）
+- 节奏：开场慢（建立世界）→ 中段快（冲突升级）→ 结尾慢（情绪释放）
+
+严格约束：
+- Beat 总数必须等于 ${beatCount}
+- 所有 shot_count 相加必须严格等于 ${input.shot_count}
+- 所有 duration 相加必须严格等于 ${input.target_duration}
+- beat_id 从 1 开始连续编号
+- narration 每条必须独特，描述该 Beat 的核心转折或事件
+
+输出格式（只输出 JSON 数组，不要输出解释）：
+[{
+  "beat_id": 1,
+  "goal": "建立危机",
+  "emotion": "压迫",
+  "event": "（本节拍具体发生的事）",
+  "duration": 8,
+  "narration": "（一句驱动剧情的旁白，必须独特）",
+  "shot_count": 3
+}]`;
+        const userMessage = `剧本：\n${JSON.stringify(script, null, 2)}\n\n参数：\n${JSON.stringify({
+            title: input.title,
+            topic: input.topic,
             era: input.era,
             location: input.location,
             tone: input.tone,
-            total_shot_count: input.shot_count,
-            current_batch_start_shot_id: startShotId,
-            current_batch_shot_count: shotCount,
-            aspect_ratio: input.aspect_ratio,
-            visual_style: input.visual_style,
-            main_characters: input.main_characters,
+            target_duration: input.target_duration,
+            shot_count: input.shot_count,
+            required_beat_count: beatCount,
         }, null, 2)}`;
         const raw = await this.chat(systemPrompt, userMessage, 0.7);
-        return this.extractJSONWithRepair(raw, 'splitStoryboard');
+        const beats = await this.extractJSONWithRepair(raw, 'generateBeats');
+        return this.normalizeBeats(beats, input);
+    }
+    normalizeBeats(beats, input) {
+        if (!beats.length)
+            return [];
+        const total = beats.reduce((sum, b) => sum + Math.max(1, b.shot_count ?? 1), 0);
+        const scale = input.shot_count / total;
+        let remaining = input.shot_count;
+        return beats.map((beat, i) => {
+            const isLast = i === beats.length - 1;
+            const count = isLast ? remaining : Math.max(1, Math.round(Math.max(1, beat.shot_count ?? 1) * scale));
+            remaining -= count;
+            return { ...beat, shot_count: count };
+        });
+    }
+    async splitShotsByBeats(script, beats, input, characterBible) {
+        const allShots = [];
+        let currentShotId = 1;
+        let previousShot;
+        for (const beat of beats) {
+            const beatShots = await this.generateShotsForBeat(beat, script, input, characterBible, currentShotId, previousShot);
+            for (let i = 0; i < beatShots.length; i++) {
+                beatShots[i].narration = i === 0 ? beat.narration : '';
+            }
+            allShots.push(...beatShots);
+            currentShotId += beatShots.length;
+            previousShot = beatShots[beatShots.length - 1];
+            this.logger.log(`[splitShotsByBeats] beat=${beat.beat_id} "${beat.event}" shots=${beatShots.length}`);
+        }
+        return allShots;
+    }
+    async generateShotsForBeat(beat, script, input, characterBible, startShotId, previousShot) {
+        const endShotId = startShotId + beat.shot_count - 1;
+        const shotTypePlan = Array.from({ length: beat.shot_count }, (_, index) => {
+            const shotNumber = startShotId + index;
+            return {
+                shot_id: shotNumber,
+                shot_type: this.getShotType(shotNumber - 1, input.shot_count),
+                inherit_from: shotNumber > 1 ? shotNumber - 1 : null,
+            };
+        });
+        const sceneContext = this.buildSceneContext(input);
+        const styleToken = this.buildStyleToken(input);
+        const characterConstraints = characterBible.length > 0
+            ? `\n\n角色设定（必须严格遵守，禁止改变外貌）：\n${JSON.stringify(characterBible, null, 2)}`
+            : '';
+        const rhythmHint = beat.beat_id === 1
+            ? '广角慢镜头，建立环境，节奏舒缓'
+            : /高潮|战斗|冲突|爆发|攻|斗/.test(beat.emotion + beat.event)
+                ? '快切，近景特写，运动镜头，节奏紧张'
+                : '情绪镜头为主，节奏适中';
+        const systemPrompt = `你是 AI 分镜导演。为一个剧情节拍生成镜头序列。${characterConstraints}
+
+【固定世界（最高优先级）】
+${JSON.stringify(sceneContext, null, 2)}
+
+【固定风格 Token（所有镜头必须继承，不要改写成别的画风）】
+${styleToken}
+
+【镜头类型计划（必须逐条遵守，不要随机发挥）】
+${JSON.stringify(shotTypePlan, null, 2)}
+
+镜头节奏：${rhythmHint}
+
+镜头规则：
+- 每个镜头描述一个可视化动作，不是情绪，不是感受
+- 镜头之间有因果逻辑（原因 → 过程 → 结果）
+- shot_02 之后必须继承上一镜头的角色位置、动作状态、场景状态
+- time/location 默认沿用固定世界，除非剧情明确需要小幅移动
+- 禁止在同一节拍内重复相同动作或姿势
+- 最后一个镜头为下一个节拍做视觉铺垫
+- shot_id 从 ${startShotId} 连续编号到 ${endShotId}
+- 输出 shot 数量必须严格等于 ${beat.shot_count}
+
+输出格式（只输出 JSON 数组，不要解释）：
+[{
+  "shot_id": ${startShotId},
+  "duration": 数字,
+  "shot_type": "${shotTypePlan[0]?.shot_type ?? 'establishing_shot'}",
+  "inherit_from": ${shotTypePlan[0]?.inherit_from ?? null},
+  "scene": "",
+  "time": "",
+  "location": "",
+  "character": [],
+  "action": "（具体可见的动作，不能是抽象情绪）",
+  "emotion": "",
+  "continuity": {"character_position": "", "action_state": "", "scene_state": ""},
+  "camera": {"shot_size": "", "angle": "", "movement": ""},
+  "visual": {"lighting": "", "color_palette": "", "composition": ""},
+  "narration": "",
+  "image_prompt": "",
+  "negative_prompt": ""
+}]`;
+        const userMessage = [
+            `当前节拍（你只为这个节拍生成镜头）：\n${JSON.stringify(beat, null, 2)}`,
+            `完整剧本（参考上下文，不要偏离）：\n${JSON.stringify(script, null, 2)}`,
+            `任务参数：\n${JSON.stringify({
+                era: input.era,
+                location: input.location,
+                tone: input.tone,
+                visual_style: input.visual_style,
+                aspect_ratio: input.aspect_ratio,
+            }, null, 2)}`,
+            previousShot ? `上一个镜头（保持视觉连续性）：\n${JSON.stringify(previousShot, null, 2)}` : '',
+        ].filter(Boolean).join('\n\n');
+        const raw = await this.chat(systemPrompt, userMessage, 0.65);
+        return this.extractJSONWithRepair(raw, `generateShotsForBeat:beat${beat.beat_id}`);
     }
     async generateImagePrompts(shots, characterBible, meta) {
         this.logger.log(`[generateImagePrompts] shots=${shots.length}`);
         const batchSize = 5;
         if (shots.length > batchSize) {
             const prompts = [];
+            let previousShotState;
             for (let index = 0; index < shots.length; index += batchSize) {
                 const batch = shots.slice(index, index + batchSize);
                 this.logger.log(`[generateImagePrompts] batch shots=${batch.map((shot) => shot.shot_id).join(',')}`);
-                prompts.push(...await this.generateImagePromptsBatch(batch, characterBible, meta));
+                const batchResults = await this.generateImagePromptsBatch(batch, characterBible, meta, previousShotState);
+                prompts.push(...batchResults);
+                previousShotState = this.extractShotState(batch[batch.length - 1]);
             }
             return prompts;
         }
         return this.generateImagePromptsBatch(shots, characterBible, meta);
     }
-    async generateImagePromptsBatch(shots, characterBible, meta) {
-        const systemPrompt = `你是专业 AI 绘图 Prompt 工程师。
-你的职责：把每个分镜转成高质量英文生图 Prompt。
+    async generateImagePromptsBatch(shots, characterBible, meta, previousShotState) {
+        const characterAnchors = characterBible.map((char) => {
+            const tokenName = `CHAR_${char.name.toUpperCase().replace(/\s+/g, '_')}`;
+            return `${tokenName} = "${char.fixed_description}, wearing ${char.default_costume}"` +
+                `\n  → 含此角色的 prompt 必须以 "${tokenName}," 开头，然后紧跟 fixed_description 逐字展开`;
+        }).join('\n');
+        const stateContext = previousShotState
+            ? `\n\n【上一批次最后镜头状态（必须保持连续性）】\n${JSON.stringify(previousShotState, null, 2)}\n` +
+                '生成当前批次 prompt 时，location/time/lighting/color_palette 必须与上一状态自然衔接，不能突变。'
+            : '';
+        const systemPrompt = `你是专业 AI 绘图 Prompt 工程师（电影分镜师风格）。
 
-Prompt 规范：
-- 必须包含：角色外貌（引用 character_bible）、时代、地点、动作、镜头语言、光线色彩、画幅
-- 禁止抽象词、心理活动、前后矛盾设定
-- negative_prompt 固定包含：modern clothing, phone, car, text, watermark, extra fingers, distorted face, low quality, blurry
+【角色 Token 系统（最高优先级）】
+${characterAnchors}
+以上 fixed_description 必须一字不差出现在对应角色的 prompt 开头，禁止改写、简化或替换。
+${stateContext}
+【严格 Prompt 结构】（每个 prompt 必须完全按此顺序）
+[角色Token展开描述], [具体动作+身体姿态], [精确场景地点], [时代风格], [镜头景别], [镜头角度], [光线描述], [色调], [画幅比例], [风格标签]
 
-输出格式：JSON 数组
+【分层 Prompt 原则】
+- character / environment / camera / lighting / action / style 必须各自清楚
+- 不要写故事感想，不要写营销词
+- 不要重新发明角色服装、发色、年龄、脸型
+- 不要改变固定世界的时代、主地点、画幅、风格
+
+【禁止规则】
+- 禁止出现抽象词：epic, breathtaking, emotional, dramatic, powerful, legendary, masterpiece, best quality, ultra cinematic, stunning, gorgeous, magnificent, extraordinary, incredible, amazing, glorious, heroic, divine
+- 禁止：心理活动描述、叙事性语言、无法目测的状态
+- 禁止：时代不符的物品（历史题材不出现手机/汽车/现代服装）
+- negative_prompt 固定值：${FIXED_NEGATIVE_PROMPT}
+
+输出格式：JSON 数组（只输出 JSON，无解释无代码块）
 [{ "shot_id": 1, "image_prompt": "...", "negative_prompt": "..." }]`;
-        const userMessage = `character_bible：\n${JSON.stringify(characterBible, null, 2)}\n\nmeta：\n${JSON.stringify(meta, null, 2)}\n\nshots：\n${JSON.stringify(shots, null, 2)}`;
-        const raw = await this.chat(systemPrompt, userMessage, 0.6);
-        return this.extractJSONWithRepair(raw, 'generateImagePrompts');
+        const userMessage = [
+            `character_bible：\n${JSON.stringify(characterBible, null, 2)}`,
+            `meta：\n${JSON.stringify(meta, null, 2)}`,
+            `shots：\n${JSON.stringify(shots, null, 2)}`,
+        ].join('\n\n');
+        const raw = await this.chat(systemPrompt, userMessage, 0.5);
+        const results = await this.extractJSONWithRepair(raw, 'generateImagePrompts');
+        for (const result of results) {
+            const shot = shots.find((s) => s.shot_id === result.shot_id);
+            if (shot) {
+                result.image_prompt = this.composeControlledImagePrompt(shot, characterBible, meta, result.image_prompt);
+            }
+            else {
+                result.image_prompt = this.cleanImagePrompt(result.image_prompt);
+            }
+            result.negative_prompt = FIXED_NEGATIVE_PROMPT;
+        }
+        return results;
     }
 };
 exports.BigModelProvider = BigModelProvider;

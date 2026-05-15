@@ -52,7 +52,9 @@
       <button class="btn-secondary" :disabled="!canOpenScript" @click="goScriptEdit">编辑剧本</button>
       <button class="btn-secondary" :disabled="!canOpenStoryboard" @click="goStoryboard">查看分镜</button>
       <button class="btn-primary" :disabled="!canOpenStoryboard" @click="goExport">导出视频</button>
-      <button v-if="pollingStatus === TaskStatus.FAILED" class="btn-retry" @click="goBack">返回重试</button>
+      <button v-if="pollingStatus === TaskStatus.FAILED" class="btn-retry" :disabled="retrying" @click="handleRetry">
+        {{ retrying ? '重试中...' : '重新生成' }}
+      </button>
     </section>
   </div>
 </template>
@@ -62,6 +64,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useTaskStore } from '../../stores/task.store';
 import { useTaskPolling } from '../../composables/useTaskPolling';
+import { retryTask } from '../../api/task.api';
 import { TaskStep, TaskStatus } from '../../types/index';
 
 interface PipelineStep {
@@ -76,6 +79,7 @@ const taskStore = useTaskStore();
 const route = useRoute();
 const router = useRouter();
 const pageError = ref('');
+const retrying = ref(false);
 
 const taskId = computed(() => String(route.query.taskId ?? ''));
 
@@ -187,8 +191,17 @@ function goExport() {
   router.push({ path: '/pages/export/index', query: { taskId: taskId.value } });
 }
 
-function goBack() {
-  uni.navigateBack();
+async function handleRetry() {
+  if (retrying.value) return;
+  retrying.value = true;
+  try {
+    const result = await retryTask(taskId.value);
+    router.replace({ path: '/pages/task-detail/index', query: { taskId: result.taskId } });
+  } catch (err) {
+    pageError.value = err instanceof Error ? err.message : '重试失败，请稍后再试';
+  } finally {
+    retrying.value = false;
+  }
 }
 
 onMounted(() => {

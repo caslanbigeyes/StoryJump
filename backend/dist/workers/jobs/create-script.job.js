@@ -27,8 +27,10 @@ async function handleCreateScriptJob(job, prisma, llmProvider, queue) {
                 data: output.shots.map((shot) => ({
                     taskId,
                     shotIndex: shot.shot_id,
-                    sceneText: shot.action,
-                    cameraAngle: `${shot.camera.shot_size}, ${shot.camera.angle}, ${shot.camera.movement}`,
+                    sceneText: shot.narration || shot.action,
+                    cameraAngle: [shot.shot_type, shot.camera.shot_size, shot.camera.angle, shot.camera.movement]
+                        .filter(Boolean)
+                        .join(', '),
                     characterAction: shot.action,
                     imagePrompt: shot.image_prompt,
                     status: 'pending',

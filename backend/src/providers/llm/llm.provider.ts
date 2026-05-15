@@ -58,18 +58,37 @@ export interface ShotVisual {
 
 export interface ShotData {
   shot_id: number;
+  beat_id?: number;
   duration: number;
+  shot_type?: string;
+  inherit_from?: number | null;
   scene: string;
   time: string;
   location: string;
   character: string[];
   action: string;
   emotion: string;
+  continuity?: {
+    character_position?: string;
+    action_state?: string;
+    scene_state?: string;
+  };
   camera: ShotCamera;
   visual: ShotVisual;
   narration: string;
   image_prompt: string;
   negative_prompt: string;
+}
+
+/** 剧情节拍：Story → Beat → Shot 叙事层级的中间层 */
+export interface StoryBeat {
+  beat_id: number;
+  goal: string;      // 剧情目的 e.g. "建立危机"
+  emotion: string;   // 情绪基调 e.g. "压迫"
+  event: string;     // 发生的具体事件 e.g. "魔种冲破城门"
+  duration: number;  // 该节拍占用秒数
+  narration: string; // 驱动剧情的旁白（一句话）
+  shot_count: number; // 该节拍分配的镜头数
 }
 
 export interface StoryboardValidation {
@@ -83,6 +102,7 @@ export interface StoryboardValidation {
 
 /** skills.md 最终统一输出格式 */
 export interface StoryboardOutput {
+  beats?: StoryBeat[];
   meta: {
     title: string;
     genre: string;
@@ -90,6 +110,13 @@ export interface StoryboardOutput {
     shot_count: number;
     aspect_ratio: string;
     visual_style: string;
+    style_token?: string;
+    scene_context?: {
+      location: string;
+      era: string;
+      tone: string;
+      aspect_ratio: string;
+    };
   };
   character_bible: CharacterBible[];
   script: StoryScript;
@@ -123,6 +150,7 @@ export abstract class LLMProvider {
   abstract splitStoryboard(
     script: StoryScript,
     input: TaskInput,
+    characterBible?: CharacterBible[],
   ): Promise<ShotData[]>;
 
   /**

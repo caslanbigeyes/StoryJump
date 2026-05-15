@@ -200,15 +200,32 @@ const normalizedTopic = computed(() => {
 });
 
 function fillExample() {
-  form.title = '王者荣耀英雄成长短片';
-  form.topic = '坚韧、成长、守护、荣耀';
-  form.location = '峡谷边境与破晓战场';
-  storySummary.value = '一位年轻英雄在失败后重新集结伙伴，穿过风暴中的峡谷，在最后一战中完成自我突破。';
-  character.name = '曜';
-  character.age = 19;
+  // 来自 jest-example.md：长安最后一战
+  form.title = '长安最后一战';
+  form.topic = '王者荣耀热血战斗短片';
+  form.genre = 'game-cinematic';
+  form.era = 'fantasy';
+  form.location = '长安朱雀街';
+  form.tone = '热血、史诗、电影感';
+  form.target_duration = 60;
+  form.shot_count = 16;
+  form.aspect_ratio = '9:16';
+  form.language = 'zh-CN';
+  form.visual_style = 'cinematic realism';
+
+  storySummary.value = `魔种大军突袭长安城，整座城市陷入火海。百姓四散奔逃，城门即将失守。就在所有人绝望之际，李白、花木兰、铠三人出现在朱雀街。他们必须拖住魔种首领，为城内百姓撤离争取最后一分钟。暴雨落下，长街燃烧，刀光与剑气撕裂黑夜。最终，花木兰重伤守住城门，李白以"青莲剑歌"斩开魔潮，铠开启魔铠完成最后一击。黎明即将到来，长安城的钟声重新响起。
+
+其他角色：
+- 花木兰（前线守卫）：短发，红黑轻甲，重剑；坚毅冷静，近战爆发
+- 铠（最终决战）：银白铠甲，蓝色能量纹路，巨刃；沉默压迫，魔铠强化
+- 魔种首领（Boss）：巨大黑色怪物，红色双眼，燃烧黑炎；残暴冲击`;
+
+  // 主角：李白
+  character.name = '李白';
+  character.age = 25;
   character.gender = 'male';
-  character.appearance = '少年剑客，蓝白战甲，披风破损但眼神明亮';
-  character.personality = '自信、热血、偶尔冲动，但关键时刻可靠';
+  character.appearance = '白色长发，高马尾，青色长袍，手持长剑';
+  character.personality = '洒脱、自信、剑术极强，高速剑气与残影位移';
 }
 
 async function handleCreate() {

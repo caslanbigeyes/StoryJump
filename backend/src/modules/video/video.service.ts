@@ -105,6 +105,21 @@ export class VideoService {
       throw new Error('No generated images found for this task');
     }
 
+    // 从 outputJson 读取每个分镜的真实时长，用于视频合成（避免固定 3 秒截断旁白）
+    const durationMap = new Map<number, number>();
+    if (task.outputJson) {
+      try {
+        const output = JSON.parse(task.outputJson) as { shots?: Array<{ shot_id: number; duration: number }> };
+        for (const shot of output.shots ?? []) {
+          if (shot.shot_id && shot.duration > 0) {
+            durationMap.set(shot.shot_id, shot.duration);
+          }
+        }
+      } catch {
+        // outputJson 解析失败时回退到默认时长
+      }
+    }
+
     const readyAudio = readyShots.filter((shot) => this.isUsableAssetUrl(shot.audioUrl));
     const resolution = options.resolution ?? '1080x1920';
     const format = (options.format ?? 'mp4').toLowerCase();
@@ -160,12 +175,15 @@ export class VideoService {
           }
         }
 
+        // shotIndex 对应 LLM 输出的 shot_id，从 durationMap 取真实时长，默认 4 秒
+        const shotDuration = durationMap.get(shot.shotIndex) ?? 4;
         await this.renderSegment({
           imagePath,
           audioPath: renderedAudioPath,
           segmentPath,
           width,
           height,
+          duration: shotDuration,
         });
 
         segmentPaths.push(segmentPath);
@@ -374,51 +392,36 @@ export class VideoService {
     segmentPath: string;
     width: number;
     height: number;
+    duration?: number;
   }) {
-    const { imagePath, audioPath, segmentPath, width, height } = params;
+    const { imagePath, audioPath, segmentPath, width, height, duration = 4 } = params;
+    const durationStr = String(Math.max(1, Math.round(duration)));
     const scaleFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p`;
     const args = audioPath
       ? [
           '-y',
-          '-loop',
-          '1',
-          '-i',
-          imagePath,
-          '-i',
-          audioPath,
-          '-t',
-          '3',
-          '-vf',
-          scaleFilter,
-          '-r',
-          '24',
-          '-c:v',
-          'libx264',
-          '-c:a',
-          'aac',
-          '-shortest',
+          '-loop', '1',
+          '-i', imagePath,
+          '-i', audioPath,
+          '-t', durationStr,   // 使用真实分镜时长
+          '-vf', scaleFilter,
+          '-r', '24',
+          '-c:v', 'libx264',
+          '-c:a', 'aac',
+          '-shortest',          // 以音频长度为准（旁白决定时长）
           segmentPath,
         ]
       : [
           '-y',
-          '-loop',
-          '1',
-          '-i',
-          imagePath,
-          '-f',
-          'lavfi',
-          '-i',
-          'anullsrc=channel_layout=stereo:sample_rate=44100',
-          '-t',
-          '3',
-          '-vf',
-          scaleFilter,
-          '-r',
-          '24',
-          '-c:v',
-          'libx264',
-          '-c:a',
-          'aac',
+          '-loop', '1',
+          '-i', imagePath,
+          '-f', 'lavfi',
+          '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+          '-t', durationStr,   // 使用真实分镜时长
+          '-vf', scaleFilter,
+          '-r', '24',
+          '-c:v', 'libx264',
+          '-c:a', 'aac',
           '-shortest',
           segmentPath,
         ];

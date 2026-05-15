@@ -38,16 +38,43 @@ export async function handleCreateScriptJob(
       },
     });
 
-    // 批量写入 Shot 记录（先删已有的，防止重试时重复）
+    // 批量写入 Beat 和 Shot（先删已有的，防止重试时重复）
     await prisma.shot.deleteMany({ where: { taskId } });
+    await prisma.beat.deleteMany({ where: { taskId } });
+
+    // 持久化 Beat 记录（从 outputJson 里的 beats 数组）
+    const beatIdMap = new Map<number, string>(); // beat_id → db Beat.id
+    if (output.beats?.length) {
+      for (const beat of output.beats) {
+        const dbBeat = await prisma.beat.create({
+          data: {
+            taskId,
+            beatIndex: beat.beat_id,
+            goal: beat.goal,
+            event: beat.event,
+            emotion: beat.emotion,
+            duration: beat.duration,
+            narration: beat.narration,
+            shotCount: beat.shot_count,
+          },
+        });
+        beatIdMap.set(beat.beat_id, dbBeat.id);
+      }
+    }
+
+    // 持久化 Shot 记录
     if (output.shots?.length) {
       await prisma.shot.createMany({
         data: output.shots.map((shot) => ({
           taskId,
+          beatId: shot.beat_id ? (beatIdMap.get(shot.beat_id) ?? null) : null,
           shotIndex: shot.shot_id,
-          sceneText: shot.action,
-          cameraAngle: `${shot.camera.shot_size}, ${shot.camera.angle}, ${shot.camera.movement}`,
+          sceneText: shot.narration || shot.action,
+          cameraAngle: [shot.shot_type, shot.camera.shot_size, shot.camera.angle, shot.camera.movement]
+            .filter(Boolean)
+            .join(', '),
           characterAction: shot.action,
+          actionVerb: (shot as any).actionVerb ?? null,
           imagePrompt: shot.image_prompt,
           status: 'pending',
         })),

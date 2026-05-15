@@ -198,6 +198,18 @@ let TaskService = class TaskService {
             orderBy: { shotIndex: 'asc' },
         });
     }
+    async retryTask(taskId, userId) {
+        const task = await this.prisma.task.findUnique({
+            where: { id: taskId },
+            select: { inputJson: true },
+        });
+        if (!task)
+            throw new common_1.NotFoundException(`Task ${taskId} not found`);
+        if (!task.inputJson)
+            throw new common_1.NotFoundException(`Task ${taskId} has no input data to retry`);
+        const input = JSON.parse(task.inputJson);
+        return this.createTask(userId, input);
+    }
     async getTaskResult(taskId) {
         const task = await this.prisma.task.findUnique({
             where: { id: taskId },

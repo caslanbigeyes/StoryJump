@@ -162,6 +162,19 @@ export class TaskService {
     });
   }
 
+  /** 重试：读取原始 inputJson，创建新任务 */
+  async retryTask(taskId: string, userId: string) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { inputJson: true },
+    });
+    if (!task) throw new NotFoundException(`Task ${taskId} not found`);
+    if (!task.inputJson) throw new NotFoundException(`Task ${taskId} has no input data to retry`);
+
+    const input = JSON.parse(task.inputJson) as TaskInput;
+    return this.createTask(userId, input as unknown as CreateTaskDto);
+  }
+
   /** 返回完整分镜结果（解析 outputJson） */
   async getTaskResult(taskId: string): Promise<StoryboardOutput | null> {
     const task = await this.prisma.task.findUnique({

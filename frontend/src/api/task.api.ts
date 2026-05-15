@@ -128,6 +128,10 @@ export interface TaskVideoStatus {
   provider?: string;
 }
 
+export function retryTask(taskId: string): Promise<CreateTaskResult> {
+  return post<CreateTaskResult>(`/tasks/${taskId}/retry`);
+}
+
 export function exportTaskVideo(taskId: string, data: ExportVideoParams): Promise<VideoExportResult> {
   return post<VideoExportResult>(`/tasks/${taskId}/video/export`, data);
 }

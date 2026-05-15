@@ -77,6 +77,10 @@ let TaskController = class TaskController {
     async regenerateTaskAudio(id) {
         return this.ttsService.generateAudioForTask(id);
     }
+    async retryTask(id, req) {
+        const userId = req.user?.id;
+        return this.taskService.retryTask(id, userId);
+    }
     async getTaskVideo(id) {
         return this.videoService.getTaskVideo(id);
     }
@@ -189,6 +193,15 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], TaskController.prototype, "regenerateTaskAudio", null);
+__decorate([
+    (0, common_1.Post)(':id/retry'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.CREATED),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], TaskController.prototype, "retryTask", null);
 __decorate([
     (0, common_1.Get)(':id/video'),
     __param(0, (0, common_1.Param)('id')),

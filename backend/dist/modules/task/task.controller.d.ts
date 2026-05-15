@@ -48,10 +48,10 @@ export declare class TaskController {
     }>;
     getTask(id: string): Promise<{
         shots: {
-            taskId: string;
             id: string;
             status: string;
             shotIndex: number;
+            taskId: string;
             sceneText: string | null;
             cameraAngle: string | null;
             characterAction: string | null;
@@ -61,7 +61,6 @@ export declare class TaskController {
         }[];
     } & {
         id: string;
-        userId: string;
         title: string;
         status: string;
         currentStep: string;
@@ -71,6 +70,7 @@ export declare class TaskController {
         errorMessage: string | null;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
     }>;
     getTaskStatus(id: string): Promise<{
         status: string;
@@ -79,10 +79,10 @@ export declare class TaskController {
         errorMessage: string;
     }>;
     getTaskShots(id: string): Promise<{
-        taskId: string;
         id: string;
         status: string;
         shotIndex: number;
+        taskId: string;
         sceneText: string | null;
         cameraAngle: string | null;
         characterAction: string | null;
@@ -95,10 +95,10 @@ export declare class TaskController {
     rewriteTaskScript(id: string, dto: RewriteScriptDto): Promise<import("../../providers/llm/llm.provider").StoryboardOutput>;
     resplitTaskStoryboard(id: string): Promise<import("../../providers/llm/llm.provider").StoryboardOutput>;
     updateShot(shotId: string, dto: UpdateShotDto): Promise<{
-        taskId: string;
         id: string;
         status: string;
         shotIndex: number;
+        taskId: string;
         sceneText: string | null;
         cameraAngle: string | null;
         characterAction: string | null;
@@ -121,6 +121,11 @@ export declare class TaskController {
         total: number;
         successCount: number;
         failedCount: number;
+    }>;
+    retryTask(id: string, req: any): Promise<{
+        taskId: string;
+        status: string;
+        currentStep: string;
     }>;
     getTaskVideo(id: string): Promise<{
         status: "failed";

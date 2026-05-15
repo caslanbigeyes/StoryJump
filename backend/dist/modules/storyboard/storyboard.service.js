@@ -44,28 +44,52 @@ let StoryboardService = StoryboardService_1 = class StoryboardService {
         }
         const input = JSON.parse(task.inputJson);
         const output = JSON.parse(task.outputJson);
-        const shots = await this.splitIntoShots(task.id, output.script, input);
+        const shots = await this.llmProvider.splitStoryboard(output.script, input, output.character_bible ?? []);
+        const meta = {
+            ...output.meta,
+            shot_count: shots.length,
+            style_token: output.meta.style_token ||
+                [input.visual_style, 'cinematic realism', 'Honor of Kings cinematic style', input.aspect_ratio]
+                    .filter(Boolean)
+                    .join(', '),
+            scene_context: output.meta.scene_context || {
+                location: input.location,
+                era: input.era,
+                tone: input.tone,
+                aspect_ratio: input.aspect_ratio,
+            },
+        };
+        const prompts = await this.llmProvider.generateImagePrompts(shots, output.character_bible ?? [], meta);
+        const promptByShotId = new Map(prompts.map((prompt) => [prompt.shot_id, prompt]));
+        const shotsWithPrompts = shots.map((shot) => {
+            const prompt = promptByShotId.get(shot.shot_id);
+            return {
+                ...shot,
+                image_prompt: prompt?.image_prompt || shot.image_prompt,
+                negative_prompt: prompt?.negative_prompt || shot.negative_prompt,
+            };
+        });
         const nextOutput = {
             ...output,
-            shots,
-            meta: {
-                ...output.meta,
-                shot_count: shots.length,
-            },
+            shots: shotsWithPrompts,
+            meta,
             validation: {
                 ...output.validation,
-                shot_count_match: shots.length === input.shot_count,
+                shot_count_match: shotsWithPrompts.length === input.shot_count,
+                all_prompts_ready: shotsWithPrompts.every((shot) => Boolean(shot.image_prompt)),
             },
         };
         await this.prisma.$transaction(async (tx) => {
             await tx.shot.deleteMany({ where: { taskId } });
-            if (shots.length > 0) {
+            if (shotsWithPrompts.length > 0) {
                 await tx.shot.createMany({
-                    data: shots.map((shot) => ({
+                    data: shotsWithPrompts.map((shot) => ({
                         taskId,
                         shotIndex: shot.shot_id,
                         sceneText: shot.scene,
-                        cameraAngle: `${shot.camera.shot_size}, ${shot.camera.angle}, ${shot.camera.movement}`,
+                        cameraAngle: [shot.shot_type, shot.camera.shot_size, shot.camera.angle, shot.camera.movement]
+                            .filter(Boolean)
+                            .join(', '),
                         characterAction: shot.action,
                         imagePrompt: shot.image_prompt,
                         imageUrl: null,

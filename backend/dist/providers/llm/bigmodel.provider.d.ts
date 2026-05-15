@@ -17,11 +17,22 @@ export declare class BigModelProvider extends LLMProvider {
     private extractJSONWithRepair;
     generateStoryboard(input: TaskInput): Promise<StoryboardOutput>;
     private buildCharacterBible;
+    private buildStyleToken;
+    private buildSceneContext;
+    private getShotType;
+    private getCameraByShotType;
     private normalizeShots;
     private buildFallbackImagePrompt;
+    private cleanImagePrompt;
+    private composeControlledImagePrompt;
+    private dedupePromptParts;
+    private extractShotState;
     generateScript(input: TaskInput): Promise<StoryScript>;
-    splitStoryboard(script: StoryScript, input: TaskInput): Promise<ShotData[]>;
-    private splitStoryboardBatch;
+    splitStoryboard(script: StoryScript, input: TaskInput, characterBible?: CharacterBible[]): Promise<ShotData[]>;
+    private generateBeats;
+    private normalizeBeats;
+    private splitShotsByBeats;
+    private generateShotsForBeat;
     generateImagePrompts(shots: ShotData[], characterBible: CharacterBible[], meta: StoryboardOutput['meta']): Promise<Array<{
         shot_id: number;
         image_prompt: string;

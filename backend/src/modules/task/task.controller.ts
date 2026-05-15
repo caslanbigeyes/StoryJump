@@ -149,6 +149,17 @@ export class TaskController {
     return this.ttsService.generateAudioForTask(id);
   }
 
+  /**
+   * POST /api/tasks/:id/retry
+   * 用原始 inputJson 创建新任务
+   */
+  @Post(':id/retry')
+  @HttpCode(HttpStatus.CREATED)
+  async retryTask(@Param('id') id: string, @Req() req: any) {
+    const userId = req.user?.id as string;
+    return this.taskService.retryTask(id, userId);
+  }
+
   @Get(':id/video')
   async getTaskVideo(@Param('id') id: string) {
     return this.videoService.getTaskVideo(id);
