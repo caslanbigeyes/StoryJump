@@ -10,6 +10,7 @@ export declare class BigModelProvider extends LLMProvider {
     private readonly fallbackBaseUrl;
     private readonly fallbackModel;
     constructor(configService: ConfigService);
+    private collectStream;
     private chat;
     private chatFallback;
     private prepareJSON;
@@ -31,6 +32,9 @@ export declare class BigModelProvider extends LLMProvider {
     splitStoryboard(script: StoryScript, input: TaskInput, characterBible?: CharacterBible[]): Promise<ShotData[]>;
     private generateBeats;
     private normalizeBeats;
+    private generateActionChain;
+    private validateShots;
+    private repairInvalidShots;
     private splitShotsByBeats;
     private generateShotsForBeat;
     generateImagePrompts(shots: ShotData[], characterBible: CharacterBible[], meta: StoryboardOutput['meta']): Promise<Array<{

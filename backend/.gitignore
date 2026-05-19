@@ -15,3 +15,5 @@
 **/.prettiercache
 **/.vscode
 /.env
+node_modules
+dist

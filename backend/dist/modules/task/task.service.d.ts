@@ -35,11 +35,11 @@ export declare class TaskService {
     listTasks(userId: string, pagination: PaginationDto): Promise<{
         data: {
             id: string;
-            title: string;
+            createdAt: Date;
             status: string;
+            title: string;
             currentStep: string;
             progress: number;
-            createdAt: Date;
             updatedAt: Date;
         }[];
         total: number;
@@ -49,28 +49,30 @@ export declare class TaskService {
     getTaskById(taskId: string): Promise<{
         shots: {
             id: string;
-            status: string;
-            shotIndex: number;
             taskId: string;
+            beatId: string | null;
+            shotIndex: number;
             sceneText: string | null;
             cameraAngle: string | null;
             characterAction: string | null;
+            actionVerb: string | null;
             imagePrompt: string | null;
             imageUrl: string | null;
             audioUrl: string | null;
+            status: string;
         }[];
     } & {
         id: string;
-        title: string;
+        createdAt: Date;
         status: string;
+        userId: string;
+        title: string;
         currentStep: string;
         progress: number;
         inputJson: string | null;
         outputJson: string | null;
         errorMessage: string | null;
-        createdAt: Date;
         updatedAt: Date;
-        userId: string;
     }>;
     getTaskStatus(taskId: string): Promise<{
         status: string;
@@ -80,15 +82,17 @@ export declare class TaskService {
     }>;
     getTaskShots(taskId: string): Promise<{
         id: string;
-        status: string;
-        shotIndex: number;
         taskId: string;
+        beatId: string | null;
+        shotIndex: number;
         sceneText: string | null;
         cameraAngle: string | null;
         characterAction: string | null;
+        actionVerb: string | null;
         imagePrompt: string | null;
         imageUrl: string | null;
         audioUrl: string | null;
+        status: string;
     }[]>;
     retryTask(taskId: string, userId: string): Promise<{
         taskId: string;

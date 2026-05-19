@@ -64,6 +64,8 @@ export class KlingImageProvider extends ImageProvider {
     prompt: string,
     negativePrompt: string,
     aspectRatio: string,
+    referenceImageUrl?: string,
+    imageFidelity?: number,
   ): Promise<string> {
     if (!this.accessKey || !this.secretKey) {
       throw new Error('缺少 KLING_ACCESS_KEY 或 KLING_SECRET_KEY，无法生成分镜图片');
@@ -71,17 +73,27 @@ export class KlingImageProvider extends ImageProvider {
 
     const token = this.buildToken();
 
+    // i2i 模式下不允许同时使用 negative_prompt（Kling 限制）
+    const useReference = !!referenceImageUrl;
+    const body: Record<string, unknown> = {
+      model_name: this.model,
+      prompt,
+      n: 1,
+      aspect_ratio: aspectRatio,
+    };
+    if (useReference) {
+      body.image = referenceImageUrl;
+      body.image_reference = 'subject'; // 锚定主体（角色）
+      body.image_fidelity = typeof imageFidelity === 'number' ? imageFidelity : 0.5;
+    } else if (negativePrompt) {
+      body.negative_prompt = negativePrompt;
+    }
+
     let resp: Awaited<ReturnType<typeof this.http.post<KlingCreateResponse>>>;
     try {
       resp = await this.http.post<KlingCreateResponse>(
         '/v1/images/generations',
-        {
-          model_name: this.model,
-          prompt,
-          negative_prompt: negativePrompt || undefined,
-          n: 1,
-          aspect_ratio: aspectRatio,
-        },
+        body,
         { headers: { Authorization: `Bearer ${token}` } },
       );
     } catch (err: any) {
@@ -94,12 +106,12 @@ export class KlingImageProvider extends ImageProvider {
       );
     }
 
-    const body = resp.data;
-    if (body.code !== 0) {
-      throw new Error(`Kling API error ${body.code}: ${body.message}`);
+    const respBody = resp.data;
+    if (respBody.code !== 0) {
+      throw new Error(`Kling API error ${respBody.code}: ${respBody.message}`);
     }
 
-    const taskId = body.data?.task_id;
+    const taskId = respBody.data?.task_id;
     if (!taskId) throw new Error('Kling returned no task_id');
     return taskId;
   }
@@ -162,11 +174,26 @@ export class KlingImageProvider extends ImageProvider {
       (options?.negative_prompt as string) ??
       'modern clothing, phone, car, text, watermark, extra fingers, distorted face, low quality, blurry, nsfw';
 
+    const referenceImageUrl =
+      typeof options?.referenceImageUrl === 'string' && options.referenceImageUrl.length > 0
+        ? (options.referenceImageUrl as string)
+        : undefined;
+    const referenceStrength =
+      typeof options?.referenceStrength === 'number'
+        ? (options.referenceStrength as number)
+        : undefined;
+
     this.logger.log(
-      `[generateImage] model=${this.model} ratio=${aspectRatio} prompt="${prompt.slice(0, 60)}..."`,
+      `[generateImage] model=${this.model} ratio=${aspectRatio} ref=${referenceImageUrl ? 'yes' : 'no'} prompt="${prompt.slice(0, 60)}..."`,
     );
 
-    const taskId = await this.submitTask(prompt, negativePrompt, aspectRatio);
+    const taskId = await this.submitTask(
+      prompt,
+      negativePrompt,
+      aspectRatio,
+      referenceImageUrl,
+      referenceStrength,
+    );
     this.logger.log(`[generateImage] task submitted: ${taskId}`);
 
     const imageUrl = await this.pollTask(taskId);

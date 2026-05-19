@@ -176,7 +176,42 @@ export class BigModelProvider extends LLMProvider {
   }
 
   // ------------------------------------------------------------------
-  // 核心：chat 调用（OpenAI 兼容接口）
+  // SSE 流式解析工具：把 Node.js Readable stream 里的 SSE 帧拼成完整文本
+  // ------------------------------------------------------------------
+  private collectStream(stream: NodeJS.ReadableStream): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let content = '';
+      let buf = '';
+
+      stream.on('data', (chunk: Buffer) => {
+        buf += chunk.toString('utf8');
+        // SSE 协议：每帧以 \n\n 结束，帧内每行以 \n 分隔
+        const parts = buf.split('\n');
+        buf = parts.pop() ?? ''; // 最后一段可能不完整，留到下次
+        for (const line of parts) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const data = JSON.parse(payload) as {
+              choices?: Array<{ delta?: { content?: string } }>;
+            };
+            const delta = data.choices?.[0]?.delta?.content;
+            if (delta) content += delta;
+          } catch {
+            // 忽略单帧解析失败（partial chunk）
+          }
+        }
+      });
+
+      stream.on('end', () => resolve(content));
+      stream.on('error', reject);
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // 核心：chat 调用（SSE stream，彻底避免超时）
   // ------------------------------------------------------------------
   private async chat(
     systemPrompt: string,
@@ -186,32 +221,37 @@ export class BigModelProvider extends LLMProvider {
     if (!this.apiKey && !this.fallbackApiKey) {
       throw new Error('缺少 LLM_API_KEY 或 DEEPSEEK_API_KEY，无法生成剧本');
     }
-
     if (!this.apiKey) {
       this.logger.warn('LLM_API_KEY is empty, using DeepSeek fallback.');
       return this.chatFallback(systemPrompt, userMessage, temperature);
     }
 
     try {
-      const resp = await this.http.post('/chat/completions', {
-        model: this.model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        temperature,
-        max_tokens: 8000,
-      });
-      return resp.data.choices[0].message.content as string;
+      const resp = await this.http.post(
+        '/chat/completions',
+        {
+          model: this.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          temperature,
+          max_tokens: 8000,
+          stream: true,          // ← 开启 SSE 流式
+        },
+        {
+          responseType: 'stream', // axios 返回 Node.js Readable
+          timeout: 0,             // 流式模式不设 axios 超时（连接超时由服务端控制）
+        },
+      );
+      const content = await this.collectStream(resp.data as NodeJS.ReadableStream);
+      if (!content) throw new Error('BigModel stream returned empty content');
+      return content;
     } catch (err: any) {
-      this.logger.warn(`BigModel failed (${err?.message}), trying DeepSeek fallback...`);
+      this.logger.warn(`BigModel stream failed (${err?.message}), trying DeepSeek fallback...`);
       if (!this.fallbackApiKey) {
-        const detail = err?.response?.data?.error ?? err?.response?.data ?? err?.message ?? String(err);
-        throw new Error(
-          typeof detail === 'object'
-            ? (detail.message ?? JSON.stringify(detail))
-            : detail,
-        );
+        const detail = err?.response?.data?.error ?? err?.message ?? String(err);
+        throw new Error(typeof detail === 'object' ? (detail.message ?? JSON.stringify(detail)) : detail);
       }
       return this.chatFallback(systemPrompt, userMessage, temperature);
     }
@@ -222,6 +262,7 @@ export class BigModelProvider extends LLMProvider {
     userMessage: string,
     temperature = 0.7,
   ): Promise<string> {
+    // DeepSeek 同样用流式，避免超时
     const resp = await axios.post(
       `${this.fallbackBaseUrl}/chat/completions`,
       {
@@ -232,16 +273,18 @@ export class BigModelProvider extends LLMProvider {
         ],
         temperature,
         max_tokens: 8000,
+        stream: true,
       },
       {
         headers: {
           Authorization: `Bearer ${this.fallbackApiKey}`,
           'Content-Type': 'application/json',
         },
-        timeout: 120_000,
+        responseType: 'stream',
+        timeout: 0,
       },
     );
-    return resp.data.choices[0].message.content as string;
+    return this.collectStream(resp.data as NodeJS.ReadableStream);
   }
 
   // ------------------------------------------------------------------
@@ -507,7 +550,9 @@ ${cleaned}`,
         scene: shot.scene || `${input.topic} 场景 ${index + 1}`,
         time: shot.time || input.era,
         location: shot.location || input.location,
-        character: Array.isArray(shot.character) ? shot.character : [],
+        character: Array.isArray(shot.character)
+          ? shot.character.map((c) => (typeof c === 'string' ? c : (c as any)?.name ?? String(c)))
+          : [],
         action: shot.action || shot.scene || `${input.topic} 的关键动作`,
         emotion: shot.emotion || input.tone,
         continuity: {
@@ -567,7 +612,9 @@ ${cleaned}`,
   ): string {
     const charMap = new Map(characterBible.map((c) => [c.name, c]));
     const characterLayer = (shot.character || [])
-      .map((charName) => {
+      .map((raw) => {
+        // LLM 有时把 character 返回成 {name:string} 对象而不是字符串，做防御转换
+        const charName = typeof raw === 'string' ? raw : (raw as any)?.name ?? String(raw);
         const entry = charMap.get(charName) ?? [...charMap.values()].find(
           (c) => charName.includes(c.name) || c.name.includes(charName),
         );

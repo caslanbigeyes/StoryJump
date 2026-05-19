@@ -161,6 +161,35 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
             timeout: 120_000,
         });
     }
+    collectStream(stream) {
+        return new Promise((resolve, reject) => {
+            let content = '';
+            let buf = '';
+            stream.on('data', (chunk) => {
+                buf += chunk.toString('utf8');
+                const parts = buf.split('\n');
+                buf = parts.pop() ?? '';
+                for (const line of parts) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data:'))
+                        continue;
+                    const payload = trimmed.slice(5).trim();
+                    if (payload === '[DONE]')
+                        continue;
+                    try {
+                        const data = JSON.parse(payload);
+                        const delta = data.choices?.[0]?.delta?.content;
+                        if (delta)
+                            content += delta;
+                    }
+                    catch {
+                    }
+                }
+            });
+            stream.on('end', () => resolve(content));
+            stream.on('error', reject);
+        });
+    }
     async chat(systemPrompt, userMessage, temperature = 0.7) {
         if (!this.apiKey && !this.fallbackApiKey) {
             throw new Error('缺少 LLM_API_KEY 或 DEEPSEEK_API_KEY，无法生成剧本');
@@ -178,16 +207,21 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
                 ],
                 temperature,
                 max_tokens: 8000,
+                stream: true,
+            }, {
+                responseType: 'stream',
+                timeout: 0,
             });
-            return resp.data.choices[0].message.content;
+            const content = await this.collectStream(resp.data);
+            if (!content)
+                throw new Error('BigModel stream returned empty content');
+            return content;
         }
         catch (err) {
-            this.logger.warn(`BigModel failed (${err?.message}), trying DeepSeek fallback...`);
+            this.logger.warn(`BigModel stream failed (${err?.message}), trying DeepSeek fallback...`);
             if (!this.fallbackApiKey) {
-                const detail = err?.response?.data?.error ?? err?.response?.data ?? err?.message ?? String(err);
-                throw new Error(typeof detail === 'object'
-                    ? (detail.message ?? JSON.stringify(detail))
-                    : detail);
+                const detail = err?.response?.data?.error ?? err?.message ?? String(err);
+                throw new Error(typeof detail === 'object' ? (detail.message ?? JSON.stringify(detail)) : detail);
             }
             return this.chatFallback(systemPrompt, userMessage, temperature);
         }
@@ -201,32 +235,65 @@ let BigModelProvider = BigModelProvider_1 = class BigModelProvider extends llm_p
             ],
             temperature,
             max_tokens: 8000,
+            stream: true,
         }, {
             headers: {
                 Authorization: `Bearer ${this.fallbackApiKey}`,
                 'Content-Type': 'application/json',
             },
-            timeout: 120_000,
+            responseType: 'stream',
+            timeout: 0,
         });
-        return resp.data.choices[0].message.content;
+        return this.collectStream(resp.data);
     }
     prepareJSON(raw) {
         let cleaned = raw
             .replace(/^```(?:json)?\s*/im, '')
             .replace(/\s*```\s*$/im, '')
             .trim();
+        cleaned = cleaned.replace(/\/\/[^\n\r]*/g, '');
         const firstBrace = cleaned.indexOf('{');
         const firstBracket = cleaned.indexOf('[');
-        let startIdx = -1;
-        if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
-            startIdx = firstBrace;
+        const startIdx = firstBrace === -1 ? firstBracket
+            : firstBracket === -1 ? firstBrace
+                : Math.min(firstBrace, firstBracket);
+        if (startIdx >= 0) {
+            const openChar = cleaned[startIdx];
+            const closeChar = openChar === '{' ? '}' : ']';
+            let depth = 0;
+            let inString = false;
+            let escaped = false;
+            let endIdx = -1;
+            for (let i = startIdx; i < cleaned.length; i++) {
+                const ch = cleaned[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch === '\\' && inString) {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === '"') {
+                    inString = !inString;
+                    continue;
+                }
+                if (inString)
+                    continue;
+                if (ch === openChar)
+                    depth++;
+                else if (ch === closeChar) {
+                    depth--;
+                    if (depth === 0) {
+                        endIdx = i;
+                        break;
+                    }
+                }
+            }
+            cleaned = endIdx >= 0
+                ? cleaned.slice(startIdx, endIdx + 1)
+                : cleaned.slice(startIdx);
         }
-        else if (firstBracket !== -1) {
-            startIdx = firstBracket;
-        }
-        if (startIdx > 0)
-            cleaned = cleaned.slice(startIdx);
-        cleaned = cleaned.replace(/\/\/[^\n\r]*/g, '');
         cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
         return cleaned;
     }
@@ -264,6 +331,7 @@ ${cleaned}`, 0);
         const script = await this.generateScript(input);
         const characterBible = this.buildCharacterBible(input);
         const shots = await this.splitStoryboard(script, input, characterBible);
+        const beats = shots.__beats__ ?? [];
         const normalizedShots = this.normalizeShots(shots, input);
         const meta = {
             title: script.title || input.title,
@@ -278,6 +346,7 @@ ${cleaned}`, 0);
         const prompts = await this.generateImagePrompts(normalizedShots, characterBible, meta);
         const promptByShotId = new Map(prompts.map((prompt) => [prompt.shot_id, prompt]));
         const output = {
+            beats,
             meta,
             character_bible: characterBible,
             script,
@@ -411,7 +480,9 @@ ${cleaned}`, 0);
                 scene: shot.scene || `${input.topic} 场景 ${index + 1}`,
                 time: shot.time || input.era,
                 location: shot.location || input.location,
-                character: Array.isArray(shot.character) ? shot.character : [],
+                character: Array.isArray(shot.character)
+                    ? shot.character.map((c) => (typeof c === 'string' ? c : c?.name ?? String(c)))
+                    : [],
                 action: shot.action || shot.scene || `${input.topic} 的关键动作`,
                 emotion: shot.emotion || input.tone,
                 continuity: {
@@ -461,7 +532,8 @@ ${cleaned}`, 0);
     composeControlledImagePrompt(shot, characterBible, meta, supplementalPrompt = '') {
         const charMap = new Map(characterBible.map((c) => [c.name, c]));
         const characterLayer = (shot.character || [])
-            .map((charName) => {
+            .map((raw) => {
+            const charName = typeof raw === 'string' ? raw : raw?.name ?? String(raw);
             const entry = charMap.get(charName) ?? [...charMap.values()].find((c) => charName.includes(c.name) || c.name.includes(charName));
             return entry ? `${entry.fixed_description}, wearing ${entry.default_costume}` : charName;
         })
@@ -539,7 +611,9 @@ ${cleaned}`, 0);
         this.logger.log(`[splitStoryboard] shot_count=${input.shot_count}`);
         const beats = await this.generateBeats(script, input);
         this.logger.log(`[splitStoryboard] beats=${beats.length} events=${beats.map((b) => b.event).join(' → ')}`);
-        return this.splitShotsByBeats(script, beats, input, characterBible);
+        const shots = await this.splitShotsByBeats(script, beats, input, characterBible);
+        shots.__beats__ = beats;
+        return shots;
     }
     async generateBeats(script, input) {
         const beatCount = Math.min(8, Math.max(5, Math.round(input.shot_count / 3)));
@@ -559,7 +633,7 @@ ${cleaned}`, 0);
 - beat_id 从 1 开始连续编号
 - narration 每条必须独特，描述该 Beat 的核心转折或事件
 
-输出格式（只输出 JSON 数组，不要输出解释）：
+输出格式（只输出一个 JSON 数组，JSON 结束后不要输出任何内容）：
 [{
   "beat_id": 1,
   "goal": "建立危机",
@@ -596,14 +670,103 @@ ${cleaned}`, 0);
             return { ...beat, shot_count: count };
         });
     }
+    async generateActionChain(beat, characterBible, shotCount) {
+        const charNames = characterBible.map((c) => `${c.name}: ${c.fixed_description}`).join('\n');
+        const systemPrompt = `你是动作编排师。为一个剧情节拍生成"动作链（Action Chain）"。
+每个动作是一个可在画面中直接观察到的物理动作。
+
+规则：
+- 动作数量必须等于 ${shotCount}
+- 每个动作必须改变角色的物理状态（位置/姿态/与物体的关系）
+- actionVerb 用英文 snake_case，例如：draw_sword / dash_forward / jump_slash / land_crouch / raise_head
+- action 用中文（10-20字，具体、可视化）
+- 动作之间必须有因果逻辑（上一步导致下一步）
+- 禁止连续两步出现相同 actionVerb
+- 禁止纯站立/注视（stand / pose / look）连续出现超过1次
+
+输出格式（只输出一个 JSON 数组，JSON 结束后不要输出任何内容）：
+[{"step": 1, "actionVerb": "...", "action": "..."}]`;
+        const userMessage = [
+            `节拍信息：\n${JSON.stringify({ goal: beat.goal, event: beat.event, emotion: beat.emotion }, null, 2)}`,
+            charNames ? `角色：\n${charNames}` : '',
+        ].filter(Boolean).join('\n\n');
+        const raw = await this.chat(systemPrompt, userMessage, 0.6);
+        const chain = await this.extractJSONWithRepair(raw, `generateActionChain:beat${beat.beat_id}`);
+        while (chain.length < shotCount) {
+            chain.push({ step: chain.length + 1, actionVerb: 'continue_action', action: '动作延续推进' });
+        }
+        return chain.slice(0, shotCount);
+    }
+    validateShots(shots) {
+        const errors = [];
+        const staticPattern = /\b(stand|pose|look|idle|wait|gaze)\b|静止|站立|凝视|驻足/i;
+        for (let i = 0; i < shots.length; i++) {
+            const shot = shots[i];
+            const sid = `shot_${shot.shot_id}`;
+            if (!shot.action || shot.action.trim().length < 4) {
+                errors.push(`${sid}: 缺少可视化动作`);
+                continue;
+            }
+            if (i > 0) {
+                const prev = shots[i - 1];
+                if (shot.camera?.shot_size && shot.camera.shot_size === prev.camera?.shot_size) {
+                    errors.push(`${sid}: 景别重复（${shot.camera.shot_size}）`);
+                }
+                if (shot.action.trim() === prev.action.trim()) {
+                    errors.push(`${sid}: 动作描述完全重复`);
+                }
+                if (staticPattern.test(shot.action) && staticPattern.test(prev.action)) {
+                    errors.push(`${sid}: 连续静止镜头`);
+                }
+            }
+        }
+        return errors;
+    }
+    async repairInvalidShots(shots, errors, beat, actionChain) {
+        const failedIds = new Set(errors.map((e) => {
+            const m = e.match(/shot_(\d+)/);
+            return m ? Number(m[1]) : -1;
+        }).filter((id) => id > 0));
+        const failedShots = shots.filter((s) => failedIds.has(s.shot_id));
+        if (!failedShots.length)
+            return shots;
+        const systemPrompt = `你是分镜修复师。以下镜头未通过校验，请仅修复这些镜头，不要动其余镜头。
+校验错误：
+${errors.join('\n')}
+
+修复规则：
+- 每个镜头必须有不同的景别（shot_size）
+- 每个镜头必须有不同的、具体的可视化动作
+- 不允许连续静止镜头
+- 保持 shot_id / beat_id 不变
+
+输出格式：只输出失败的镜头 JSON 数组，不要输出其他内容。`;
+        const userMessage = [
+            `节拍：\n${JSON.stringify({ goal: beat.goal, event: beat.event }, null, 2)}`,
+            `动作链：\n${JSON.stringify(actionChain, null, 2)}`,
+            `需要修复的镜头：\n${JSON.stringify(failedShots, null, 2)}`,
+        ].join('\n\n');
+        const raw = await this.chat(systemPrompt, userMessage, 0.5);
+        const repaired = await this.extractJSONWithRepair(raw, 'repairInvalidShots');
+        const repairedMap = new Map(repaired.map((s) => [s.shot_id, s]));
+        return shots.map((s) => repairedMap.get(s.shot_id) ?? s);
+    }
     async splitShotsByBeats(script, beats, input, characterBible) {
         const allShots = [];
         let currentShotId = 1;
         let previousShot;
         for (const beat of beats) {
-            const beatShots = await this.generateShotsForBeat(beat, script, input, characterBible, currentShotId, previousShot);
+            const actionChain = await this.generateActionChain(beat, characterBible, beat.shot_count);
+            this.logger.log(`[splitShotsByBeats] beat=${beat.beat_id} chain=${actionChain.map((a) => a.actionVerb).join('→')}`);
+            let beatShots = await this.generateShotsForBeat(beat, script, input, characterBible, currentShotId, previousShot, actionChain);
+            const errors = this.validateShots(beatShots);
+            if (errors.length > 0) {
+                this.logger.warn(`[splitShotsByBeats] beat=${beat.beat_id} validation errors: ${errors.join('; ')}`);
+                beatShots = await this.repairInvalidShots(beatShots, errors, beat, actionChain);
+            }
             for (let i = 0; i < beatShots.length; i++) {
                 beatShots[i].narration = i === 0 ? beat.narration : '';
+                beatShots[i].beat_id = beat.beat_id;
             }
             allShots.push(...beatShots);
             currentShotId += beatShots.length;
@@ -612,7 +775,7 @@ ${cleaned}`, 0);
         }
         return allShots;
     }
-    async generateShotsForBeat(beat, script, input, characterBible, startShotId, previousShot) {
+    async generateShotsForBeat(beat, script, input, characterBible, startShotId, previousShot, actionChain = []) {
         const endShotId = startShotId + beat.shot_count - 1;
         const shotTypePlan = Array.from({ length: beat.shot_count }, (_, index) => {
             const shotNumber = startShotId + index;
@@ -632,6 +795,11 @@ ${cleaned}`, 0);
             : /高潮|战斗|冲突|爆发|攻|斗/.test(beat.emotion + beat.event)
                 ? '快切，近景特写，运动镜头，节奏紧张'
                 : '情绪镜头为主，节奏适中';
+        const actionChainSection = actionChain.length > 0
+            ? `\n【动作链（最高执行优先级）】\n` +
+                `每个 shot 必须对应动作链的对应 step，action 字段必须反映该步骤的动作，不允许自由发挥其他动作：\n` +
+                actionChain.map((a) => `  shot_${startShotId + a.step - 1} → actionVerb="${a.actionVerb}", action="${a.action}"`).join('\n')
+            : '';
         const systemPrompt = `你是 AI 分镜导演。为一个剧情节拍生成镜头序列。${characterConstraints}
 
 【固定世界（最高优先级）】
@@ -639,23 +807,22 @@ ${JSON.stringify(sceneContext, null, 2)}
 
 【固定风格 Token（所有镜头必须继承，不要改写成别的画风）】
 ${styleToken}
-
+${actionChainSection}
 【镜头类型计划（必须逐条遵守，不要随机发挥）】
 ${JSON.stringify(shotTypePlan, null, 2)}
 
 镜头节奏：${rhythmHint}
 
 镜头规则：
-- 每个镜头描述一个可视化动作，不是情绪，不是感受
+- 每个镜头的 action 必须严格来自上方动作链对应步骤，不允许使用未在链中出现的动作
+- 不同 shot 必须有不同的 shot_size（禁止连续相同景别）
 - 镜头之间有因果逻辑（原因 → 过程 → 结果）
-- shot_02 之后必须继承上一镜头的角色位置、动作状态、场景状态
-- time/location 默认沿用固定世界，除非剧情明确需要小幅移动
-- 禁止在同一节拍内重复相同动作或姿势
+- 继承上一镜头的角色位置、场景状态（time/location 默认不变）
 - 最后一个镜头为下一个节拍做视觉铺垫
 - shot_id 从 ${startShotId} 连续编号到 ${endShotId}
 - 输出 shot 数量必须严格等于 ${beat.shot_count}
 
-输出格式（只输出 JSON 数组，不要解释）：
+输出格式（只输出一个 JSON 数组，JSON 结束后不要输出任何内容）：
 [{
   "shot_id": ${startShotId},
   "duration": 数字,

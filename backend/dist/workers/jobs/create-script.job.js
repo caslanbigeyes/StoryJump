@@ -22,16 +22,37 @@ async function handleCreateScriptJob(job, prisma, llmProvider, queue) {
             },
         });
         await prisma.shot.deleteMany({ where: { taskId } });
+        await prisma.beat.deleteMany({ where: { taskId } });
+        const beatIdMap = new Map();
+        if (output.beats?.length) {
+            for (const beat of output.beats) {
+                const dbBeat = await prisma.beat.create({
+                    data: {
+                        taskId,
+                        beatIndex: beat.beat_id,
+                        goal: beat.goal,
+                        event: beat.event,
+                        emotion: beat.emotion,
+                        duration: beat.duration,
+                        narration: beat.narration,
+                        shotCount: beat.shot_count,
+                    },
+                });
+                beatIdMap.set(beat.beat_id, dbBeat.id);
+            }
+        }
         if (output.shots?.length) {
             await prisma.shot.createMany({
                 data: output.shots.map((shot) => ({
                     taskId,
+                    beatId: shot.beat_id ? (beatIdMap.get(shot.beat_id) ?? null) : null,
                     shotIndex: shot.shot_id,
                     sceneText: shot.narration || shot.action,
                     cameraAngle: [shot.shot_type, shot.camera.shot_size, shot.camera.angle, shot.camera.movement]
                         .filter(Boolean)
                         .join(', '),
                     characterAction: shot.action,
+                    actionVerb: shot.actionVerb ?? null,
                     imagePrompt: shot.image_prompt,
                     status: 'pending',
                 })),

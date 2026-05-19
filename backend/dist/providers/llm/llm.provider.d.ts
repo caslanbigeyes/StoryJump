@@ -49,6 +49,7 @@ export interface ShotVisual {
 }
 export interface ShotData {
     shot_id: number;
+    beat_id?: number;
     duration: number;
     shot_type?: string;
     inherit_from?: number | null;
@@ -87,6 +88,7 @@ export interface StoryboardValidation {
     all_prompts_ready: boolean;
 }
 export interface StoryboardOutput {
+    beats?: StoryBeat[];
     meta: {
         title: string;
         genre: string;

@@ -14,38 +14,44 @@ export declare class StoryboardService {
         imagePrompt: string;
     }>): Promise<{
         id: string;
-        status: string;
-        shotIndex: number;
         taskId: string;
+        beatId: string | null;
+        shotIndex: number;
         sceneText: string | null;
         cameraAngle: string | null;
         characterAction: string | null;
+        actionVerb: string | null;
         imagePrompt: string | null;
         imageUrl: string | null;
         audioUrl: string | null;
+        status: string;
     }>;
     getShotsByTask(taskId: string): Promise<{
         id: string;
-        status: string;
-        shotIndex: number;
         taskId: string;
+        beatId: string | null;
+        shotIndex: number;
         sceneText: string | null;
         cameraAngle: string | null;
         characterAction: string | null;
+        actionVerb: string | null;
         imagePrompt: string | null;
         imageUrl: string | null;
         audioUrl: string | null;
+        status: string;
     }[]>;
     getShotById(shotId: string): Promise<{
         id: string;
-        status: string;
-        shotIndex: number;
         taskId: string;
+        beatId: string | null;
+        shotIndex: number;
         sceneText: string | null;
         cameraAngle: string | null;
         characterAction: string | null;
+        actionVerb: string | null;
         imagePrompt: string | null;
         imageUrl: string | null;
         audioUrl: string | null;
+        status: string;
     }>;
 }

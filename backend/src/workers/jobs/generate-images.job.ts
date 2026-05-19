@@ -51,51 +51,86 @@ export async function handleGenerateImagesJob(
     logger.log(`[task:${taskId}] generating images for ${total} shots`);
     let completed = 0;
 
-    // 分批串行（每批内部并行）避免超限
-    for (let batchStart = 0; batchStart < total; batchStart += BATCH_SIZE) {
+    // 读取已有角色锚（断点续跑场景）
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    let characterRef: string | null = task?.characterReferenceUrl ?? null;
+
+    const renderShot = async (shot: typeof shots[number]): Promise<void> => {
+      if (!shot.imagePrompt) {
+        logger.warn(`[task:${taskId}] shot ${shot.shotIndex} has no imagePrompt, skipping`);
+        completed++;
+        return;
+      }
+
+      try {
+        const shotOptions: Record<string, unknown> = { ...(options ?? {}) };
+        if (characterRef) {
+          shotOptions.referenceImageUrl = characterRef;
+          // 0.5 在风格保持和构图自由度之间折中；后续可调
+          shotOptions.referenceStrength = 0.5;
+        }
+
+        const imageUrl = await imageProvider.generateImage(shot.imagePrompt, shotOptions);
+
+        await prisma.shot.update({
+          where: { id: shot.id },
+          data: {
+            imageUrl,
+            status: 'image_done',
+            referenceImageUrl: characterRef ?? null,
+          },
+        });
+
+        await prisma.asset.create({
+          data: {
+            taskId,
+            shotId: shot.id,
+            type: 'image',
+            url: imageUrl,
+            provider: 'kling',
+          },
+        });
+
+        logger.log(`[task:${taskId}] shot ${shot.shotIndex}/${total} image done (ref=${characterRef ? 'yes' : 'no'})`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error(`[task:${taskId}] shot ${shot.shotIndex} image failed: ${msg}`);
+        await prisma.shot.update({
+          where: { id: shot.id },
+          data: { status: 'image_failed' },
+        });
+      }
+
+      completed++;
+    };
+
+    // 阶段 1: 若无角色锚，单跑首镜，回写 task.characterReferenceUrl
+    let startIndex = 0;
+    if (!characterRef) {
+      const firstShot = shots[0];
+      await renderShot(firstShot);
+      const refreshed = await prisma.shot.findUnique({ where: { id: firstShot.id } });
+      if (refreshed?.imageUrl) {
+        characterRef = refreshed.imageUrl;
+        await prisma.task.update({
+          where: { id: taskId },
+          data: { characterReferenceUrl: characterRef },
+        });
+        logger.log(`[task:${taskId}] character reference anchored at shot 0`);
+      } else {
+        logger.warn(`[task:${taskId}] first shot failed to produce reference image, continuing without anchor`);
+      }
+      startIndex = 1;
+      const progress = 60 + Math.round((completed / total) * 35);
+      await prisma.task.update({ where: { id: taskId }, data: { progress } });
+      await job.updateProgress(Math.round((completed / total) * 100));
+    }
+
+    // 阶段 2: 剩余镜头分批并发，带参考图
+    for (let batchStart = startIndex; batchStart < total; batchStart += BATCH_SIZE) {
       const batch = shots.slice(batchStart, batchStart + BATCH_SIZE);
+      await Promise.all(batch.map(renderShot));
 
-      await Promise.all(
-        batch.map(async (shot) => {
-          if (!shot.imagePrompt) {
-            logger.warn(`[task:${taskId}] shot ${shot.shotIndex} has no imagePrompt, skipping`);
-            completed++;
-            return;
-          }
-
-          try {
-            const imageUrl = await imageProvider.generateImage(shot.imagePrompt, options);
-
-            await prisma.shot.update({
-              where: { id: shot.id },
-              data: { imageUrl, status: 'image_done' },
-            });
-
-            await prisma.asset.create({
-              data: {
-                taskId,
-                shotId: shot.id,
-                type: 'image',
-                url: imageUrl,
-                provider: 'kling',
-              },
-            });
-
-            logger.log(`[task:${taskId}] shot ${shot.shotIndex}/${total} image done`);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.error(`[task:${taskId}] shot ${shot.shotIndex} image failed: ${msg}`);
-            await prisma.shot.update({
-              where: { id: shot.id },
-              data: { status: 'image_failed' },
-            });
-          }
-
-          completed++;
-        }),
-      );
-
-      // 更新整体进度 (60% ~ 95%)
       const progress = 60 + Math.round((completed / total) * 35);
       await prisma.task.update({ where: { id: taskId }, data: { progress } });
       await job.updateProgress(Math.round((completed / total) * 100));
